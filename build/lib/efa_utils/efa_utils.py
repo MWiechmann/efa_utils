@@ -1,5 +1,4 @@
-"""
-EFA Utilities (efa_utils)
+"""EFA Utilities (efa_utils)
 Custom utility functions for exploratory factor analysis with the factor_analyzer package.
 
 Functions:
@@ -84,8 +83,7 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
 
 # Function to check KMO
 def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=None):
-    """
-    Function to check the Kaiser–Meyer–Olkin (KMO) measure of sampling adequacy of a dataset and print a report.
+    """Function to check the Kaiser–Meyer–Olkin (KMO) measure of sampling adequacy of a dataset and print a report.
     Requires statsmodels package.
     The KMO value is a measure of the suitability of data for factor analysis.
     The KMO value ranges from 0 to 1, where 0 indicates that the correlations are too spread out to be useful for factor analysis,
@@ -132,8 +130,7 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
 
 # Function to conduct parallel analysis
 def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, print_table=True, return_rec_n=True, extraction="minres"):
-    """
-    Function to perform parallel analysis on a dataset.
+    """Function to perform parallel analysis on a dataset.
 
     Parameters:
     df (pandas dataframe): dataframe containing the variables to be analyzed
@@ -276,8 +273,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                   print_details=False, print_par_plot=False, print_par_table=False,
                   par_k=100, par_n_facs=15, iterative=True, auto_stop_par=False,
                   items_descr=None):
-    """
-    Run EFA with iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process.
+    """Run EFA with iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process.
 
     Parameters:
     data (pandas dataframe): Dataframe with data to be analyzed
@@ -429,8 +425,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
 
 # Function to print main loadings for each factor
 def print_sorted_loadings(efa, item_lables, load_thresh=0.4, descr=[]):
-    """
-    Print strongly loading variables for each factor. Will only print loadings above load_thresh for each factor.
+    """Print strongly loading variables for each factor. Will only print loadings above load_thresh for each factor.
 
     Parameters:
     efa (object): EFA object. Has to be created with factor_analyzer package.
@@ -460,8 +455,7 @@ def print_sorted_loadings(efa, item_lables, load_thresh=0.4, descr=[]):
 
 # Function to automatically reverse-code (Likert-scale) items where necessary
 def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max_score=5):
-    """
-    Takes an EFA object and automatically reverse-codes (Likert-scale) items where necessary
+    """Takes an EFA object and automatically reverse-codes (Likert-scale) items where necessary
     and adds the reverse-coded version to a new dataframe.
     Will only reverse-code items with main loadings above load_thresh for each factor.
 
