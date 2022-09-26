@@ -1,6 +1,6 @@
 Metadata-Version: 2.1
 Name: efa-utils
-Version: 0.3
+Version: 0.4
 Summary: Custom utility functions for exploratory factor analysis with the factor_analyzer package.
 Author: Dr. Marcel Wiechmann
 License: GPLv3

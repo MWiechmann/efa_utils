@@ -53,7 +53,7 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
         if print_details:
             print(f"Excluded item {vif_max[0]}. VIF: {vif_max[1]:.2f}")
 
-            if vars_descr:
+            if vars_descr is not None:
                 print(f"('{vars_descr[vif_max[0]]}')")
             print("")
 
@@ -106,7 +106,7 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
             if item_kmo < .6:
                 low_item_kmo = True
                 print(f"Low KMO for {vars_li[i]} : {item_kmo}")
-                if vars_descr:
+                if vars_descr is not None:
                     print(f"('{vars_descr[vars_li[i]]}')")
             i += 1
 
