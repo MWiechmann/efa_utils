@@ -8,6 +8,7 @@ parallel_analysis: Function to perform parallel analysis to determine the number
 iterative_fa: Function to perform iterative exploratory factor analysis. Runs EFA with an iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process.
 print_sorted_loadings: Print strongly loading variables for each factor. Will only print loadings above load_thresh for each factor.
 rev_items_and_return: Takes an EFA object and automatically reverse-codes (Likert-scale) items where necessary and adds the reverse-coded version to a new dataframe. Returns the new dataframe.
+factor_int_reliability: Takes a pandas dataframe and dictionary with name of factors as keys and list of variables as values. Prints results for the internal reliability for each factor.
 """
 
 from efa_utils.efa_utils_functions import *

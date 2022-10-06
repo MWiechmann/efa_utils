@@ -2,8 +2,21 @@ import copy
 import numpy as np
 import pandas as pd
 import factor_analyzer as fa
-import matplotlib.pyplot as plt
-from statsmodels.stats.outliers_influence import variance_inflation_factor as vif
+# optional imports
+try:
+    import pingouin as pg
+except:
+    pass
+
+try:
+    import matplotlib.pyplot as plt
+except:
+    pass
+
+try:
+    from statsmodels.stats.outliers_influence import variance_inflation_factor as vif
+except:
+    pass
 
 # Function to reduce multicollinearity
 def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_details=True):
@@ -448,7 +461,7 @@ def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max
     Will only reverse-code items with main loadings above load_thresh for each factor.
 
     Parameters:
-    df (dataframe): Dataframe containing items to be reverse-coded
+    df (pandas dataframe): Dataframe containing items to be reverse-coded
     efa (object): EFA object. Has to be created with factor_analyzer package.
     item_lables (list): List of item labels
     load_thresh (float): Threshold for main loadings. Only loadings above this threshold will be reverse-coded for each factor.
@@ -483,3 +496,54 @@ def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max
             items_per_fact_dict[i].append(rev_item_name)
 
     return (new_df, items_per_fact_dict)
+
+def factor_int_reliability(df, items_per_factor, conf_int = .95, print_if_excluded = True):
+    """Calculates and prints the internal reliability for each factor in a dataframe.
+    Reliability is calculated using Cronbach's alpha.
+    If a factor contains only 2 items, the reliability is calculated using the Spearman-Brown instead
+    (see Eisinger, Grothenhuis & Pelzer, 2013: https://link.springer.com/article/10.1007/s00038-012-0416-3).
+
+    Parameters:
+    df (pandas dataframe): Dataframe containing items to compute reliability for
+    items_per_factor (dict): Dictionary with a list of items per factor. Should have the structure {"factor_name_1": ["col_name_item_1", "col_name_item_2", ...]; "factor_name_2": ...}.
+    conf_int (float): Confidence level for the confidence interval for reliability. Default is 0.95.
+    print_if_excluded (bool): If True, will also examine cronbach's alpha when each item is excluded and print the results. Default is True.
+
+    Returns:
+    None
+    """
+    for factor_n in items_per_factor:
+        print(f"Internal consistency for factor {factor_n}:")
+
+        items = items_per_factor[factor_n]
+
+        if len(items) > 2:
+            cron_alpha = pg.cronbach_alpha(data=df[items], ci=conf_int)
+            print(f"Cronbachs alpha = {cron_alpha[0]:.4f}, {conf_int*100}% CI = [{cron_alpha[1][0]:.2f}, {cron_alpha[1][1]:.2f}]")
+
+            if print_if_excluded:
+            # loop over items for current factor
+            # compute cronbach's alpha by excluding one item at a time
+                print("\nCronbach's alpha when excluding variable...")
+                for cur_item in items:
+                    # create list with all items except current item
+                    items_wo_cur_item = copy.deepcopy(items)
+                    items_wo_cur_item.remove(cur_item)
+
+                    cur_cron_alpha = pg.cronbach_alpha(
+                        data=df[items_wo_cur_item], ci=conf_int)[0]
+
+                    # bold entry if excluding item leads to improvement
+                    bold_or_not = "\033[1m" if cur_cron_alpha > cron_alpha[0] else "\033[0m"
+                    print(f"{bold_or_not}{cur_item}: {cur_cron_alpha:.4f}\033[0m")
+        elif len(items) == 2:
+            print("Factor has only two items, will use Spearman-Brown instead.")
+            # For 2-item scales, the Spearman-Brown Formula can be simplified (given r):
+            # S_B = 2 * r / (1 + r)
+            corr = df[items].corr().iloc[0, 1]
+            spear_brown_rel = 2*corr/(1+corr)
+            print("Spearman-Brown reliability = {:.4f}".format(spear_brown_rel))
+        else:
+            print("Factor has only one item, cannot compute reliability.")
+
+        print("\n")
