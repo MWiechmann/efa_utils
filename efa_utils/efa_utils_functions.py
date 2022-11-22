@@ -228,7 +228,7 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
     # If requested also print table with EV for each number of factors
     # Always print the row for the previous (!) factor -
     # that way when we reach threshold the suggested number of factors can be made bold
-    for factor_n, cur_ev_par in par_95per[:facs_to_display].iteritems():
+    for factor_n, cur_ev_par in par_95per.iloc[:facs_to_display].items():
         # factor_n start with 1, ev_efa is a list and index start at 0
         # so the respective ev from ev_efa is factor_n - 1
         cur_ev_efa = evs[factor_n-1]
@@ -254,7 +254,7 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
             print(f"{last_factor_n}\t{last_95per_par:.2f}\t\t\t\t{last_ev_efa:.2f}")
 
         # if this is the last factor, also print the current factor EV if requested
-        if (print_table) & (factor_n == len(par_95per[:facs_to_display])):
+        if (print_table) & (factor_n == len(par_95per.iloc[:facs_to_display])):
             print(f"{factor_n}\t{cur_ev_par:.2f}\t\t\t\t{cur_ev_efa:.2f}")
 
         last_factor_n = factor_n
