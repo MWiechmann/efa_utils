@@ -194,8 +194,8 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
         # Line for eigenvalue 1
         plt.plot([1, facs_to_display+1], [1, 1], 'k--', alpha=0.3)
         # For the random data (parallel analysis)
-        plt.plot(range(1, len(par_95per[:facs_to_display])+1),
-                 par_95per[:facs_to_display], 'b', label='EVs - random', alpha=0.4)
+        plt.plot(range(1, len(par_95per.iloc[:facs_to_display])+1),
+                 par_95per.iloc[:facs_to_display], 'b', label='EVs - random', alpha=0.4)
         # Markers and line for actual EFA eigenvalues
         plt.scatter(
             range(1, len(evs[:facs_to_display])+1), evs[:facs_to_display])
