@@ -1,10 +1,12 @@
 import copy
+import warnings
 import numpy as np
 import pandas as pd
 import factor_analyzer as fa
+
 # optional imports
 try:
-    import pingouin as pg
+    from reliabilipy import reliability_analysis
 except:
     pass
 
@@ -422,6 +424,13 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
 
         kmo_check(data[curr_vars], curr_vars, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
 
+        # Check for Heywood cases
+        comms = efa_6.get_communalities()
+        if comms.max() >= 1.0:
+            print(f"Heywood case found for item {items_6[comms.argmax()]}. Communality: {comms.max()}")
+        else:
+            print("No Heywood case found.")
+
     return (efa, curr_vars)
 
 # Function to print main loadings for each factor
@@ -497,8 +506,9 @@ def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max
 
     return (new_df, items_per_fact_dict)
 
-def factor_int_reliability(df, items_per_factor, conf_int = .95, print_if_excluded = True):
+def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_total", "omega_hier"], check_if_excluded = True, print_results = True, return_results = True):
     """Calculates and prints the internal reliability for each factor in a dataframe.
+    Requires reliabilipy package.
     Reliability is calculated using Cronbach's alpha.
     If a factor contains only 2 items, the reliability is calculated using the Spearman-Brown instead
     (see Eisinger, Grothenhuis & Pelzer, 2013: https://link.springer.com/article/10.1007/s00038-012-0416-3).
@@ -506,44 +516,137 @@ def factor_int_reliability(df, items_per_factor, conf_int = .95, print_if_exclud
     Parameters:
     df (pandas dataframe): Dataframe containing items to compute reliability for
     items_per_factor (dict): Dictionary with a list of items per factor. Should have the structure {"factor_name_1": ["col_name_item_1", "col_name_item_2", ...]; "factor_name_2": ...}.
-    conf_int (float): Confidence level for the confidence interval for reliability. Default is 0.95.
-    print_if_excluded (bool): If True, will also examine cronbach's alpha when each item is excluded and print the results. Default is True.
+    measures (list): List of reliability measures to calculate. Possible values: "cronbach", "omega_total", "omega_hier". Default: ["cronbach", "omega_total", "omega_hier"]
+    check_if_excluded (bool): If True, will also examine reliability when each item is excluded and print the results. Default is True.
+    print_results (bool): If True, will print the results. Default is True.
+    return_results (bool): If True, will return the results. Default is True.
 
     Returns:
-    None
+    When check_if_excluded is False, returns:
+    fac_reliab(pd.DataFrame): Dataframe with reliability estimates for each factor
+    When check_if_excluded is True, returns a tuple with the following elements:
+    fac_reliab(pd.DataFrame): Dataframe with reliability estimates for each factor
+    fac_reliab_excl(dict): Dictionary with reliability estimates for each factor when each item is excluded. Keys are factor numbers, values are dataframes with reliability estimates. Each row gives reliability estimates fore excluding one item from that factor.
     """
+
+    # Create df to store measures for whole factors
+    fac_reliab = pd.DataFrame(index=items_per_factor.keys(), columns=measures)
+    # dict to store dfs to store measures for each item excluded
+    if check_if_excluded:
+        fac_reliab_excl = {}
+    
+    # Loop over factors
     for factor_n in items_per_factor:
-        print(f"Internal consistency for factor {factor_n}:")
 
         items = items_per_factor[factor_n]
 
         if len(items) > 2:
-            cron_alpha = pg.cronbach_alpha(data=df[items], ci=conf_int)
-            print(f"Cronbachs alpha = {cron_alpha[0]:.4f}, {conf_int*100}% CI = [{cron_alpha[1][0]:.2f}, {cron_alpha[1][1]:.2f}]")
+            
+            ra = reliability_analysis(raw_dataset=aiss[items], is_corr_matrix=False, impute="median")
 
-            if print_if_excluded:
-            # loop over items for current factor
-            # compute cronbach's alpha by excluding one item at a time
-                print("\nCronbach's alpha when excluding variable...")
-                for cur_item in items:
-                    # create list with all items except current item
-                    items_wo_cur_item = copy.deepcopy(items)
-                    items_wo_cur_item.remove(cur_item)
+            # Check for Heywood case
+            # relaiabilipy runs into trouble, when fa_g is a Heywood case
+            # Will catch Warning and warn the user about the Heywood case
+            # In general good idea to check for Heywood case though
+            # will also check for Heywood case for fa_f and warn if there is one
+            
+            with warnings.catch_warnings(), np.errstate(invalid="warn"):
+                warnings.filterwarnings('error', category=RuntimeWarning, message="invalid value encountered in double_scalars")
+                try:
+                    ra.fit()
+                except Warning as err:
+                    with np.errstate(invalid='ignore'):
+                        ra.fit()
+                        comms_g = ra.fa_g.get_communalities()
+                        if comms_g.max() >= 1.0:
+                            print(f"Heywood case found for item {items[comms_g.argmax()]} for the common factor of factor #{factor_n}! Communality: {comms_g.max()}")
+                        else:
+                            print(f"Warning for factor {factor_n}! Error: {err}")
 
-                    cur_cron_alpha = pg.cronbach_alpha(
-                        data=df[items_wo_cur_item], ci=conf_int)[0]
+            # Also check fa_f for Heywood case
+            comms_f = ra.fa_f.get_communalities()
+            if comms_f.max() >= 1.0:
+                print(f"Heywood case found for item {items[comms_f.argmax()]} for the group factors of factor #{factor_n}! Communality: {comms_f.max()}")
+            
+            if "cronbach" in measures:
+                fac_reliab.loc[factor_n, "cronbach"] = ra.alpha_cronbach
+            if "omega_total" in measures:
+                fac_reliab.loc[factor_n, "omega_total"] = ra.omega_total
+            if "omega_hier" in measures:
+                fac_reliab.loc[factor_n, "omega_hier"] = ra.omega_hierarchical
+        
+            if check_if_excluded:
+                if len(items) > 3:
+                    fac_reliab_excl[factor_n] = pd.DataFrame(index=items_per_factor[factor_n], columns=measures)
+                    # loop over items for current factor
+                    # compute cronbach's alpha by excluding one item at a time
+                    for cur_item in items:
+                        # create list with all items except current item
+                        items_wo_cur_item = copy.deepcopy(items)
+                        items_wo_cur_item.remove(cur_item)
 
-                    # bold entry if excluding item leads to improvement
-                    bold_or_not = "\033[1m" if cur_cron_alpha > cron_alpha[0] else "\033[0m"
-                    print(f"{bold_or_not}{cur_item}: {cur_cron_alpha:.4f}\033[0m")
+                        ra_excl = reliability_analysis(raw_dataset=aiss[items_wo_cur_item], is_corr_matrix=False, impute="median", n_factors_f=2)
+
+                        # Also check fa_g and fa_f for Heywood case here
+                        with warnings.catch_warnings(), np.errstate(invalid="warn"):
+                            warnings.filterwarnings('error', category=RuntimeWarning, message="invalid value encountered in double_scalars")
+                            try:
+                                ra_excl.fit()
+                            except Warning as err:
+                                with np.errstate(invalid='ignore'):
+                                    ra_excl.fit()
+                                    comms_excl = ra_excl.fa_g.get_communalities()
+                                    if comms_excl.max() >= 1.0:
+                                        print(
+                                            f"Heywood case found while excluding {cur_item} from factor # {factor_n}! " \
+                                            f"Heywood case for {items_wo_cur_item[comms_excl.argmax()]} for the common factor. " \
+                                            f"Communality: {comms_excl.max()}"
+                                            )
+                                    else:
+                                        print(
+                                            f"Warning while while excluding {cur_item} from factor # {factor_n}! " \
+                                            f"Error: {err}"
+                                            )
+
+                        # Also check fa_f for Heywood case
+                        comms_f_excl = ra_excl.fa_f.get_communalities()
+                        if comms_f_excl.max() >= 1.0:
+                            print(
+                                f"Heywood case found while excluding {cur_item} from factor # {factor_n}! " \
+                                f"Heywood case for {items_wo_cur_item[comms_f_excl.argmax()]} for the group factors. " \
+                                f"Communality: {comms_f_excl.max()}"
+                                )
+                        
+                        if "cronbach" in measures:
+                            fac_reliab_excl[factor_n].loc[cur_item, "cronbach"] = ra_excl.alpha_cronbach
+                        if "omega_total" in measures:
+                            fac_reliab_excl[factor_n].loc[cur_item, "omega_total"] = ra_excl.omega_total
+                        if "omega_hier" in measures:
+                            fac_reliab_excl[factor_n].loc[cur_item, "omega_hier"] = ra_excl.omega_hierarchical
+                else:
+                    print(f"Factor {factor_n} only has 3 items. Excluding items is not recommended. Will not compute reliability for excluding single items.")
+
         elif len(items) == 2:
-            print("Factor has only two items, will use Spearman-Brown instead.")
+            print(f"Factor {factor_n} only has two items, will use Spearman-Brown instead.")
             # For 2-item scales, the Spearman-Brown Formula can be simplified (given r):
             # S_B = 2 * r / (1 + r)
             corr = df[items].corr().iloc[0, 1]
             spear_brown_rel = 2*corr/(1+corr)
-            print("Spearman-Brown reliability = {:.4f}".format(spear_brown_rel))
+            fac_reliab.loc[factor_n, "Spearman-Brown"] = spear_brown_rel
         else:
-            print("Factor has only one item, cannot compute reliability.")
+            print(f"Factor {factor_n} has only one item, cannot compute reliability.")
 
-        print("\n")
+
+    # print results
+    if print_results:
+        print("\nInternal reliability for factors:")
+        print(fac_reliab.astype(float).round(3))
+        if check_if_excluded:
+            for fac in fac_reliab_excl:
+                print(f"\nInternal reliability for factor {fac} for excluding one item at a time:")
+                print(fac_reliab_excl[fac].astype(float).round(3))
+
+    if check_if_excluded and return_results:
+        return fac_reliab, fac_reliab_excl
+    elif return_results:
+        return fac_reliab

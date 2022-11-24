@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "efa-utils"
-version = "0.6.3"
+version = "0.7.0"
 description = "Custom utility functions for exploratory factor analysis with the factor_analyzer package."
 authors = ["Marcel Wiechmann <mail@mwiechmann.com>"]
 license = "GNU General Public License v3.0"
@@ -13,10 +13,13 @@ numpy = "^1.23.5"
 pandas = "^1.5.1"
 factor-analyzer = "^0.4.1"
 
-[tool.poetry.group.dev.dependencies]
-pingouin = "^0.5.2"
+[tool.poetry.group.optional]
+optional = true
+
+[tool.poetry.group.optional.dependencies]
 matplotlib = "^3.6.2"
 statsmodels = "^0.13.5"
+reliabilipy = "^0.0.35"
 
 [build-system]
 requires = ["poetry-core"]
