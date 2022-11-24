@@ -542,7 +542,7 @@ def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_
 
         if len(items) > 2:
             
-            ra = reliability_analysis(raw_dataset=aiss[items], is_corr_matrix=False, impute="median")
+            ra = reliability_analysis(raw_dataset=df[items], is_corr_matrix=False, impute="median")
 
             # Check for Heywood case
             # relaiabilipy runs into trouble, when fa_g is a Heywood case
@@ -585,7 +585,7 @@ def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_
                         items_wo_cur_item = copy.deepcopy(items)
                         items_wo_cur_item.remove(cur_item)
 
-                        ra_excl = reliability_analysis(raw_dataset=aiss[items_wo_cur_item], is_corr_matrix=False, impute="median", n_factors_f=2)
+                        ra_excl = reliability_analysis(raw_dataset=df[items_wo_cur_item], is_corr_matrix=False, impute="median", n_factors_f=2)
 
                         # Also check fa_g and fa_f for Heywood case here
                         with warnings.catch_warnings(), np.errstate(invalid="warn"):
