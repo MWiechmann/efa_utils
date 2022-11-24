@@ -509,7 +509,7 @@ def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max
 def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_total", "omega_hier"], check_if_excluded = True, print_results = True, return_results = True):
     """Calculates and prints the internal reliability for each factor in a dataframe.
     Requires reliabilipy package.
-    Reliability is calculated using Cronbach's alpha.
+    Available reliability measures are Cronbach's alpha, Omega Total and Omega Hierarchical.
     If a factor contains only 2 items, the reliability is calculated using the Spearman-Brown instead
     (see Eisinger, Grothenhuis & Pelzer, 2013: https://link.springer.com/article/10.1007/s00038-012-0416-3).
 
