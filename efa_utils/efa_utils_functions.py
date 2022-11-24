@@ -425,7 +425,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         kmo_check(data[curr_vars], curr_vars, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
 
         # Check for Heywood cases
-        comms = efa_6.get_communalities()
+        comms = efa.get_communalities()
         if comms.max() >= 1.0:
             print(f"Heywood case found for item {items_6[comms.argmax()]}. Communality: {comms.max()}")
         else:
