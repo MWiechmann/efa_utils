@@ -133,7 +133,7 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
 
 # Function to conduct parallel analysis
 def parallel_analysis(
-    df, vars_li, k=100, facs_to_display=15, print_graph=True,
+    df, vars_li, k=200, facs_to_display=15, print_graph=True,
     print_table=True, return_rec_n=True, extraction="minres",
     percentile=99, standard=1.1):
     """Function to perform parallel analysis on a dataset.
@@ -141,7 +141,7 @@ def parallel_analysis(
     Parameters:
     df (pandas dataframe): dataframe containing the variables to be analyzed
     vars_li (list): list of variables to be analyzed
-    k (int): number of EFAs to fit over a random dataset for parallel analysis
+    k (int): number of EFAs to fit over a random dataset for parallel analysis. Default is 200.
     facs_to_display (int): number of factors to display in table and/or graph
     print_graph (bool): whether to print a graph of the results. Requires matplotlib package. Default is True.
     print_table (bool): whether to print a table of the results
@@ -223,7 +223,7 @@ def parallel_analysis(
     # Determine threshold    
     # Also print out table with EVs if requested
     last_factor_n = 0
-    last_95per_par = 0
+    last_per_par = 0
     last_ev_efa = 0
     found_threshold = False
     suggested_factors = 1
@@ -244,7 +244,7 @@ def parallel_analysis(
         cur_ev_efa = evs[factor_n-1]
 
         # If Threshold not found yet:
-        # Check if for current number factors the EV from random data is >= EV from actual data
+        # Check if for current number factors the (EV from random data x standard) is >= EV from actual data
         # If so, threshold has been crossed and the suggested number of factors is the previous step
         if (factor_n > 1) & (cur_ev_par*standard >= cur_ev_efa) & (found_threshold == False):
             found_threshold = True
@@ -253,7 +253,7 @@ def parallel_analysis(
             # if requested print EV for previous factor - make it BOLD
             if print_table:
                 print(
-                    f"\033[1m{last_factor_n}\t{last_95per_par:.2f}\t\t\t\t{last_ev_efa:.2f}\033[0m")
+                    f"\033[1m{last_factor_n}\t{last_per_par:.2f}\t\t\t\t{last_ev_efa:.2f}\033[0m")
             # the rest of the loop is only needed for printing the table
             # so if no table is requested we can exit the loop here
             else:
@@ -261,19 +261,20 @@ def parallel_analysis(
 
         # if requested and this is not the threshold step, print previous factor EV
         elif (factor_n > 1) & (print_table):
-            print(f"{last_factor_n}\t{last_95per_par:.2f}\t\t\t\t{last_ev_efa:.2f}")
+            print(f"{last_factor_n}\t{last_per_par:.2f}\t\t\t\t{last_ev_efa:.2f}")
 
         # if this is the last factor, also print the current factor EV if requested
         if (print_table) & (factor_n == len(par_per.iloc[:facs_to_display])):
             print(f"{factor_n}\t{cur_ev_par:.2f}\t\t\t\t{cur_ev_efa:.2f}")
 
         last_factor_n = factor_n
-        last_95per_par = cur_ev_par
+        last_per_par = cur_ev_par
         last_ev_efa = cur_ev_efa
 
     if print_table:
         print(
-            f"Suggested number of factors based on parallel analysis: {suggested_factors}")
+            f"Suggested number of factors \n"
+            f"based on parallel analysis and standard of {standard}: {suggested_factors}")
 
     if return_rec_n:
         return suggested_factors
