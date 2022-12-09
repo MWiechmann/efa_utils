@@ -132,7 +132,10 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
         return (kmo)
 
 # Function to conduct parallel analysis
-def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, print_table=True, return_rec_n=True, extraction="minres"):
+def parallel_analysis(
+    df, vars_li, k=100, facs_to_display=15, print_graph=True,
+    print_table=True, return_rec_n=True, extraction="minres",
+    percentile=99, standard=1.1):
     """Function to perform parallel analysis on a dataset.
 
     Parameters:
@@ -144,6 +147,8 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
     print_table (bool): whether to print a table of the results
     return_rec_n (bool): whether to return the recommended number of factors
     extraction (str): extraction method to use for the EFA/PCA. Default is "minres". Other options are "ml" (maximum likelihood), "principal" (principal factors), and "components" (principal components).
+    percentile (int): against which percentile to compare the eigenvalues. Default is 99.
+    standard (float): how much higher the eigenvalues should be compared to the random dataset. Default is 1.1 (10% higher).
 
     Returns:
     suggested_factors: number of factors suggested by parallel analysis
@@ -186,8 +191,8 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
             [pd.DataFrame(cur_ev_series).transpose(), ev_par_df], ignore_index=True)
         ev_par_df = ev_par_df.apply(pd.to_numeric)
 
-    # get 95th percentile for the evs
-    par_95per = ev_par_df.quantile(0.95)
+    # get percentile for the evs
+    par_per = ev_par_df.quantile(percentile/100)
 
     if print_graph:
         # Draw graph
@@ -196,8 +201,8 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
         # Line for eigenvalue 1
         plt.plot([1, facs_to_display+1], [1, 1], 'k--', alpha=0.3)
         # For the random data (parallel analysis)
-        plt.plot(range(1, len(par_95per.iloc[:facs_to_display])+1),
-                 par_95per.iloc[:facs_to_display], 'b', label='EVs - random', alpha=0.4)
+        plt.plot(range(1, len(par_per.iloc[:facs_to_display])+1),
+                 par_per.iloc[:facs_to_display], 'b', label=f'EVs - random: {percentile}th percentile', alpha=0.4)
         # Markers and line for actual EFA eigenvalues
         plt.scatter(
             range(1, len(evs[:facs_to_display])+1), evs[:facs_to_display])
@@ -205,14 +210,17 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
                  evs[:facs_to_display], label='EVs - survey data')
 
         plt.title('Parallel Analysis Scree Plots', {'fontsize': 20})
-        plt.xlabel('Components', {'fontsize': 15})
+        if extraction == "components":
+            plt.xlabel('Components', {'fontsize': 15})
+        else:
+            plt.xlabel('Factors', {'fontsize': 15})
         plt.xticks(ticks=range(1, facs_to_display+1),
                    labels=range(1, facs_to_display+1))
         plt.ylabel('Eigenvalue', {'fontsize': 15})
         plt.legend()
         plt.show()
 
-    # Determine threshold
+    # Determine threshold    
     # Also print out table with EVs if requested
     last_factor_n = 0
     last_95per_par = 0
@@ -223,14 +231,14 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
     if print_table:
         # Create simple table with values for 95th percentile for random data and EVs for actual data
         print(
-            f"Factor eigenvalues for the 95th percentile of {k} random matricesand for survey data for first {facs_to_display} factors:\n")
-        print("\033[1mFactor\tEV - random data 95h perc.\tEV survey data\033[0m")
+            f"Factor eigenvalues for the {percentile}th percentile of {k} random matricesand for survey data for first {facs_to_display} factors:\n")
+        print("\033[1mFactor\tEV - random data {percentile}th perc.\tEV survey data\033[0m")
 
     # Loop through EVs to find threshold
     # If requested also print table with EV for each number of factors
     # Always print the row for the previous (!) factor -
     # that way when we reach threshold the suggested number of factors can be made bold
-    for factor_n, cur_ev_par in par_95per.iloc[:facs_to_display].items():
+    for factor_n, cur_ev_par in par_per.iloc[:facs_to_display].items():
         # factor_n start with 1, ev_efa is a list and index start at 0
         # so the respective ev from ev_efa is factor_n - 1
         cur_ev_efa = evs[factor_n-1]
@@ -238,7 +246,7 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
         # If Threshold not found yet:
         # Check if for current number factors the EV from random data is >= EV from actual data
         # If so, threshold has been crossed and the suggested number of factors is the previous step
-        if (factor_n > 1) & (cur_ev_par >= cur_ev_efa) & (found_threshold == False):
+        if (factor_n > 1) & (cur_ev_par*standard >= cur_ev_efa) & (found_threshold == False):
             found_threshold = True
             suggested_factors = factor_n-1
 
@@ -256,7 +264,7 @@ def parallel_analysis(df, vars_li, k=100, facs_to_display=15, print_graph=True, 
             print(f"{last_factor_n}\t{last_95per_par:.2f}\t\t\t\t{last_ev_efa:.2f}")
 
         # if this is the last factor, also print the current factor EV if requested
-        if (print_table) & (factor_n == len(par_95per.iloc[:facs_to_display])):
+        if (print_table) & (factor_n == len(par_per.iloc[:facs_to_display])):
             print(f"{factor_n}\t{cur_ev_par:.2f}\t\t\t\t{cur_ev_efa:.2f}")
 
         last_factor_n = factor_n
@@ -427,7 +435,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         # Check for Heywood cases
         comms = efa.get_communalities()
         if comms.max() >= 1.0:
-            print(f"Heywood case found for item {items_6[comms.argmax()]}. Communality: {comms.max()}")
+            print(f"Heywood case found for item {items[comms.argmax()]}. Communality: {comms.max()}")
         else:
             print("No Heywood case found.")
 
