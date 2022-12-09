@@ -232,7 +232,7 @@ def parallel_analysis(
         # Create simple table with values for 95th percentile for random data and EVs for actual data
         print(
             f"Factor eigenvalues for the {percentile}th percentile of {k} random matricesand for survey data for first {facs_to_display} factors:\n")
-        print("\033[1mFactor\tEV - random data {percentile}th perc.\tEV survey data\033[0m")
+        print(f"\033[1mFactor\tEV - random data {percentile}th perc.\tEV survey data\033[0m")
 
     # Loop through EVs to find threshold
     # If requested also print table with EV for each number of factors
@@ -401,8 +401,8 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
 
         if crossloads_df[mask_high_cross].empty:
             print(
-                f"All cross_loadins loadings below {cross_thres}"
-                f"and differences between main loading and crossloadings above {load_diff_thresh}.\n"
+                f"All cross-loadings below {cross_thres}"
+                f" and differences between main loading and crossloadings above {load_diff_thresh}.\n"
             )
         else:
             # save bad items and remove them
