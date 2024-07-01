@@ -23,6 +23,8 @@ reliabilipy = "^0.0.35"
 
 [tool.poetry.dev-dependencies]
 pytest = "^7.4.0"
+matplotlib = "^3.8.0"
+reliabilipy = "^0.0.35"
 
 [build-system]
 requires = ["poetry-core"]

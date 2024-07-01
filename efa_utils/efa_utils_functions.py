@@ -28,10 +28,9 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
     df (pandas dataframe): dataframe containing the variables to be checked for multicollinearity
     vars_li (list): list of variables to be checked for multicollinearity
     det_thre (float): Threshold for the determinant of the correlation matrix. Default is 0.00001. If the determinant is below this threshold, the function will drop the variable with the highest VIF until the determinant is above the threshold.
-    vars_descr (list): Dataframe or dictonary containing the variable descriptions (variable names as index/key). If provided, the function will also print the variable descriptions additionally to the variable names.
+    vars_descr (list): Dataframe or dictionary containing the variable descriptions (variable names as index/key). If provided, the function will also print the variable descriptions additionally to the variable names.
     print_details (bool): If True, the function will print a detailed report of the process. Default is True.
     deletion_method (str): Method for handling missing data. Options are 'listwise' or 'pairwise' (default).
-
 
     Returns:
     reduced_vars(list): List of variables after multicollinearity reduction.
@@ -62,28 +61,40 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
     
     while det <= det_thre:
         if deletion_method == 'listwise':
-            x_df = df.dropna(subset=vars_li)[reduced_vars]
-            vifs = [vif(x_df.values, i) for i in range(len(x_df.columns))]
+            x_df = df.dropna(subset=reduced_vars)[reduced_vars]
+            vifs = [vif(x_df.values, i) for i in range(x_df.shape[1])]
             vif_data = pd.Series(vifs, index=x_df.columns)
         else:  # pairwise
             vif_data = pd.Series(index=reduced_vars)
-            for i, col in enumerate(reduced_vars):
+            for col in reduced_vars:
                 x = df[reduced_vars].drop(columns=[col])
                 y = df[col]
                 mask = ~(x.isna().any(axis=1) | y.isna())
                 x_valid = x[mask]
                 y_valid = y[mask]
-                vif_data[col] = vif(x_valid.values, x_valid.shape[1])
+                if x_valid.empty or y_valid.empty:
+                    print(f"Warning: No valid data for variable {col}. Skipping VIF calculation.")
+                    vif_data[col] = np.nan
+                else:
+                    vif_data[col] = vif(x_valid.values, x_valid.shape[1] - 1)  # subtract 1 because we dropped one column
 
-        vif_max = (vif_data.idxmax(), vif_data.max())
+        if vif_data.isnull().all():
+            print("All VIF calculations resulted in NaN. Cannot proceed with multicollinearity reduction.")
+            return reduced_vars
+
+        vif_max = vif_data.idxmax(), vif_data.max()
 
         if print_details:
             print(f"Excluded item {vif_max[0]}. VIF: {vif_max[1]:.2f}")
-            if vars_descr is not None:
+            if vars_descr is not None and vif_max[0] in vars_descr:
                 print(f"('{vars_descr[vif_max[0]]}')")
             print("")
 
         reduced_vars.remove(vif_max[0])
+
+        if len(reduced_vars) < 2:
+            print("Less than 2 variables remaining. Stopping multicollinearity reduction.")
+            break
 
         if deletion_method == 'listwise':
             vars_corr = df[reduced_vars].corr()
@@ -190,14 +201,16 @@ def parallel_analysis(
     ev_par_df = pd.DataFrame(columns=range(1, m+1))
 
     # Run the fit 'k' times over a random matrix
+    ev_par_list = []
     for _ in range(k):
         par_efa.fit(np.random.normal(size=(n, m)))
         if extraction == "components":
             cur_ev_series = pd.Series(par_efa.get_eigenvalues()[0], index=range(1, m+1))
         else:
             cur_ev_series = pd.Series(par_efa.get_eigenvalues()[1], index=range(1, m+1))
-
-        ev_par_df = pd.concat([pd.DataFrame(cur_ev_series).T, ev_par_df], ignore_index=True)
+        ev_par_list.append(cur_ev_series)
+    
+    ev_par_df = pd.DataFrame(ev_par_list)
     ev_par_df = ev_par_df.apply(pd.to_numeric)
 
     # get percentile for the evs
@@ -332,7 +345,14 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             print(f"Not enough variables left (only {len(curr_vars)}). Stopping iteration.")
             return None, curr_vars
 
-        efa.fit(data[curr_vars])
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            efa.fit(data[curr_vars])
+            if len(w) > 0:
+                print("Warning during EFA fitting:")
+                print(w[-1].message)
+                print("This may indicate high multicollinearity in the data.")
+
         print(f"Fitted solution #{i}\n")
 
         # print screeplot and/or table and/or check for auto-stopping for parallel analysis
