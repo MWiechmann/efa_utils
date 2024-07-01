@@ -11,4 +11,12 @@ rev_items_and_return: Takes an EFA object and automatically reverse-codes (Liker
 factor_int_reliability: Takes a pandas dataframe and dictionary with name of factors as keys and list of variables as values. Prints results for the internal reliability for each factor. Requires reliability package.
 """
 
-from efa_utils.efa_utils_functions import *
+from .efa_utils_functions import (
+    reduce_multicoll,
+    kmo_check,
+    parallel_analysis,
+    iterative_efa,
+    print_sorted_loadings,
+    rev_items_and_return,
+    factor_int_reliability
+)

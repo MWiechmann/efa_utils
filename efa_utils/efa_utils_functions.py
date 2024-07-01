@@ -328,6 +328,10 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     i = 1
     while not final_solution:
         # Fit EFA
+        if len(curr_vars) < 2:
+            print(f"Not enough variables left (only {len(curr_vars)}). Stopping iteration.")
+            return None, curr_vars
+
         efa.fit(data[curr_vars])
         print(f"Fitted solution #{i}\n")
 
