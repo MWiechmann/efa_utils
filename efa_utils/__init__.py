@@ -2,13 +2,25 @@
 Custom utility functions for exploratory factor analysis with the factor_analyzer package.
 
 Functions:
-reduce_multicoll: Function to reduce multicollinearity in a dataset (intended for EFA). Uses the determinant of the correlation matrix to determine if multicollinearity is present. If the determinant is below a threshold (0.00001 by default), the function will drop the variable with the highest VIF until the determinant is above the threshold. Requires statsmodels package.
-kmo_check: Function to check the Kaiser-Meyer-Olkin measure of sampling adequacy (KMO) and Bartlett's test of sphericity for a dataset. Requires statsmodels package. Main use is to print a report of total KMO and item KMOs, but can also return the KMO values.
-parallel_analysis: Function to perform parallel analysis to determine the number of factors to retain. Requires matplotlib.
-iterative_efa: Function to perform iterative exploratory factor analysis. Runs EFA with an iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process. If parallel analysis option is to be used, requires matplotlib.
-print_sorted_loadings: Print strongly loading variables for each factor. Will only print loadings above load_thresh for each factor.
-rev_items_and_return: Takes an EFA object and automatically reverse-codes (Likert-scale) items where necessary and adds the reverse-coded version to a new dataframe. Returns the new dataframe.
-factor_int_reliability: Takes a pandas dataframe and dictionary with name of factors as keys and list of variables as values. Prints results for the internal reliability for each factor. Requires reliability package.
+- reduce_multicoll: Reduce multicollinearity in a dataset (intended for EFA).
+- kmo_check: Check the Kaiser-Meyer-Olkin measure of sampling adequacy (KMO) and Bartlett's test of sphericity.
+- parallel_analysis: Perform parallel analysis to determine the number of factors to retain.
+- iterative_efa: Perform iterative exploratory factor analysis.
+- print_sorted_loadings: Print strongly loading variables for each factor.
+- rev_items_and_return: Reverse-code items and return a new dataframe.
+- factor_int_reliability: Calculate and print internal reliability for each factor.
+
+Note: Some functions may raise warnings about matrix inversion when dealing with highly correlated data.
+
+Requirements:
+- factor_analyzer
+- numpy
+- pandas
+- statsmodels (for reduce_multicoll and kmo_check)
+- matplotlib (for parallel_analysis and iterative_efa with parallel analysis option)
+- reliabilipy (for factor_int_reliability)
+
+For detailed function descriptions, please refer to the individual function docstrings.
 """
 
 from .efa_utils_functions import (
@@ -20,3 +32,15 @@ from .efa_utils_functions import (
     rev_items_and_return,
     factor_int_reliability
 )
+
+__all__ = [
+    "reduce_multicoll",
+    "kmo_check",
+    "parallel_analysis",
+    "iterative_efa",
+    "print_sorted_loadings",
+    "rev_items_and_return",
+    "factor_int_reliability"
+]
+
+__version__ = "0.7.8"  # Update this with your current version number
