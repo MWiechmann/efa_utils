@@ -3,25 +3,21 @@ import warnings
 import numpy as np
 import pandas as pd
 import factor_analyzer as fa
+from statsmodels.stats.outliers_influence import variance_inflation_factor as vif
 
 # optional imports
 try:
     from reliabilipy import reliability_analysis
-except:
+except ImportError:
     pass
 
 try:
     import matplotlib.pyplot as plt
-except:
-    pass
-
-try:
-    from statsmodels.stats.outliers_influence import variance_inflation_factor as vif
-except:
+except ImportError:
     pass
 
 # Function to reduce multicollinearity
-def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_details=True):
+def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_details=True, deletion_method='pairwise'):
     """
     Function to reduce multicollinearity in a dataset (intended for EFA).
     Uses the determinant of the correlation matrix to determine if multicollinearity is present.
@@ -34,55 +30,73 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
     det_thre (float): Threshold for the determinant of the correlation matrix. Default is 0.00001. If the determinant is below this threshold, the function will drop the variable with the highest VIF until the determinant is above the threshold.
     vars_descr (list): Dataframe or dictonary containing the variable descriptions (variable names as index/key). If provided, the function will also print the variable descriptions additionally to the variable names.
     print_details (bool): If True, the function will print a detailed report of the process. Default is True.
+    deletion_method (str): Method for handling missing data. Options are 'listwise' or 'pairwise' (default).
+
 
     Returns:
-    reduced_vars(list): List of variables after multicollinearity reduction, i.e. variables that are not highly correlated with each other.
+    reduced_vars(list): List of variables after multicollinearity reduction.
     """
+    if deletion_method not in ['listwise', 'pairwise']:
+        raise ValueError("deletion_method must be either 'listwise' or 'pairwise'")
+
     reduced_vars = copy.deepcopy(vars_li)
     print("Beginning check for multicollinearity")
-    vars_corr = df[reduced_vars].corr()
+    
+    if deletion_method == 'listwise':
+        vars_corr = df[reduced_vars].corr()
+        count_missing = df[vars_li].isna().any(axis=1).sum()
+        if count_missing > 0:
+            print(f"This requires dropping missing values. The procedure will ignore {count_missing} cases with missing values")
+    else:  # pairwise
+        vars_corr = df[reduced_vars].corr(method='pearson', min_periods=1)
+        print("Using pairwise deletion for handling missing data")
+
     det = np.linalg.det(vars_corr)
     print(f"\nDeterminant of initial correlation matrix: {det}\n")
 
     if det > det_thre:
-        print(
-            f"Determinant is > {det_thre}. No issues with multicollinearity detected.")
-        return (reduced_vars)
+        print(f"Determinant is > {det_thre}. No issues with multicollinearity detected.")
+        return reduced_vars
 
-    print("Starting to remove redundant variables by acessing mutlicollinearity with VIF...\n")
-    count_missing = len(df) - len(df.dropna(subset=vars_li))
-    if count_missing > 0:
-        print(
-            f"This requries dropping missing values."
-            f"The following procedure will ignore {count_missing} cases with missing values"
-        )
+    print("Starting to remove redundant variables by assessing multicollinearity with VIF...\n")
+    
     while det <= det_thre:
-        # could implement pairwise dropping of missing here at some point
-        # but until you have a case with lots of missing data, this will work fine
-        x_df = df.dropna(subset=vars_li)[reduced_vars]
-        vifs = [vif(x_df.values, i)
-                for i in range(len(x_df.columns))]
-        vif_data = pd.Series(vifs, index=x_df.columns)
+        if deletion_method == 'listwise':
+            x_df = df.dropna(subset=vars_li)[reduced_vars]
+            vifs = [vif(x_df.values, i) for i in range(len(x_df.columns))]
+            vif_data = pd.Series(vifs, index=x_df.columns)
+        else:  # pairwise
+            vif_data = pd.Series(index=reduced_vars)
+            for i, col in enumerate(reduced_vars):
+                x = df[reduced_vars].drop(columns=[col])
+                y = df[col]
+                mask = ~(x.isna().any(axis=1) | y.isna())
+                x_valid = x[mask]
+                y_valid = y[mask]
+                vif_data[col] = vif(x_valid.values, x_valid.shape[1])
+
         vif_max = (vif_data.idxmax(), vif_data.max())
 
         if print_details:
             print(f"Excluded item {vif_max[0]}. VIF: {vif_max[1]:.2f}")
-
             if vars_descr is not None:
                 print(f"('{vars_descr[vif_max[0]]}')")
             print("")
 
         reduced_vars.remove(vif_max[0])
 
-        vars_corr = df[reduced_vars].corr()
+        if deletion_method == 'listwise':
+            vars_corr = df[reduced_vars].corr()
+        else:  # pairwise
+            vars_corr = df[reduced_vars].corr(method='pearson', min_periods=1)
+        
         det = np.linalg.det(vars_corr)
 
     print(f"Done! Determinant is now: {det:.6f}")
     count_removed = len(vars_li) - len(reduced_vars)
-    print(
-        f"I have excluded {count_removed} redunant items with {len(reduced_vars)} items remaining")
+    print(f"I have excluded {count_removed} redundant items with {len(reduced_vars)} items remaining")
 
-    return (reduced_vars)
+    return reduced_vars
 
 # Function to check KMO
 def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=None):
@@ -98,7 +112,7 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
     dropna_thre (int): Threshold for the number of missing values. Default is 0. If the number of missing values is above this threshold, the function will drop the variable. If the SVD does not converge, try increasing this threshold.
     check_item_kmos (bool): If True, the function will also check the KMO for each item. Default is True.
     return_kmos (bool): If True, the function will return the item KMOs value and the overall KMO. Default is False.
-    vars_descr (pandas dataframe or dictonary): Dataframe or dictonary containing the variable descriptions (variable names as index/key). If provided, the function will also print the variable descriptions additionally to the variable names.
+    vars_descr (pandas dataframe or dictionary): Dataframe or dictionary containing the variable descriptions (variable names as index/key). If provided, the function will also print the variable descriptions additionally to the variable names.
 
     Returns:
     kmo_per_variable (numpy.ndarray) – The KMO score per item.
@@ -106,7 +120,7 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
     """
     # drop missing values
     if dropna_thre > 0:
-        df.dropna(subset=vars_li, thresh=dropna_thre, inplace=True)
+        df = df.dropna(subset=vars_li, thresh=dropna_thre)
 
     # calculate KMO
     kmo = fa.factor_analyzer.calculate_kmo(df[vars_li])
@@ -115,21 +129,19 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
 
     if check_item_kmos:
         # Check KMO for each variable
-        i = 0
         low_item_kmo = False
-        for item_kmo in kmo[0]:
+        for i, item_kmo in enumerate(kmo[0]):
             if item_kmo < .6:
                 low_item_kmo = True
                 print(f"Low KMO for {vars_li[i]} : {item_kmo}")
                 if vars_descr is not None:
                     print(f"('{vars_descr[vars_li[i]]}')")
-            i += 1
 
-        if low_item_kmo == False:
+        if not low_item_kmo:
             print("All item KMOs are >.6")
 
     if return_kmos:
-        return (kmo)
+        return kmo
 
 # Function to conduct parallel analysis
 def parallel_analysis(
@@ -157,7 +169,7 @@ def parallel_analysis(
     if extraction == "components":
         efa = fa.FactorAnalyzer(rotation=None)
         efa.fit(df[vars_li])
-        # Eigenvalues are orignal eigenvalues for PCA
+        # Eigenvalues are original eigenvalues for PCA
         evs = efa.get_eigenvalues()[0]
     else:
         efa = fa.FactorAnalyzer(rotation=None, method=extraction)
@@ -178,18 +190,15 @@ def parallel_analysis(
     ev_par_df = pd.DataFrame(columns=range(1, m+1))
 
     # Run the fit 'k' times over a random matrix
-    for i in range(0, k):
+    for _ in range(k):
         par_efa.fit(np.random.normal(size=(n, m)))
         if extraction == "components":
-            cur_ev_series = pd.Series(par_efa.get_eigenvalues()[
-                                      0], index=range(1, m+1))
+            cur_ev_series = pd.Series(par_efa.get_eigenvalues()[0], index=range(1, m+1))
         else:
-            cur_ev_series = pd.Series(par_efa.get_eigenvalues()[
-                                      1], index=range(1, m+1))
+            cur_ev_series = pd.Series(par_efa.get_eigenvalues()[1], index=range(1, m+1))
 
-        ev_par_df = pd.concat(
-            [pd.DataFrame(cur_ev_series).transpose(), ev_par_df], ignore_index=True)
-        ev_par_df = ev_par_df.apply(pd.to_numeric)
+        ev_par_df = pd.concat([pd.DataFrame(cur_ev_series).T, ev_par_df], ignore_index=True)
+    ev_par_df = ev_par_df.apply(pd.to_numeric)
 
     # get percentile for the evs
     par_per = ev_par_df.quantile(percentile/100)
@@ -204,8 +213,7 @@ def parallel_analysis(
         plt.plot(range(1, len(par_per.iloc[:facs_to_display])+1),
                  par_per.iloc[:facs_to_display], 'b', label=f'EVs - random: {percentile}th percentile', alpha=0.4)
         # Markers and line for actual EFA eigenvalues
-        plt.scatter(
-            range(1, len(evs[:facs_to_display])+1), evs[:facs_to_display])
+        plt.scatter(range(1, len(evs[:facs_to_display])+1), evs[:facs_to_display])
         plt.plot(range(1, len(evs[:facs_to_display])+1),
                  evs[:facs_to_display], label='EVs - survey data')
 
@@ -214,8 +222,7 @@ def parallel_analysis(
             plt.xlabel('Components', {'fontsize': 15})
         else:
             plt.xlabel('Factors', {'fontsize': 15})
-        plt.xticks(ticks=range(1, facs_to_display+1),
-                   labels=range(1, facs_to_display+1))
+        plt.xticks(range(1, facs_to_display+1), range(1, facs_to_display+1))
         plt.ylabel('Eigenvalue', {'fontsize': 15})
         plt.legend()
         plt.show()
@@ -231,7 +238,7 @@ def parallel_analysis(
     if print_table:
         # Create simple table with values for 95th percentile for random data and EVs for actual data
         print(
-            f"Factor eigenvalues for the {percentile}th percentile of {k} random matricesand for survey data for first {facs_to_display} factors:\n")
+            f"Factor eigenvalues for the {percentile}th percentile of {k} random matrices and for survey data for first {facs_to_display} factors:\n")
         print(f"\033[1mFactor\tEV - random data {percentile}th perc.\tEV survey data\033[0m")
 
     # Loop through EVs to find threshold
@@ -246,7 +253,7 @@ def parallel_analysis(
         # If Threshold not found yet:
         # Check if for current number factors the (EV from random data x standard) is >= EV from actual data
         # If so, threshold has been crossed and the suggested number of factors is the previous step
-        if (factor_n > 1) & (cur_ev_par*standard >= cur_ev_efa) & (found_threshold == False):
+        if (factor_n > 1) and (cur_ev_par*standard >= cur_ev_efa) and (not found_threshold):
             found_threshold = True
             suggested_factors = factor_n-1
 
@@ -260,11 +267,11 @@ def parallel_analysis(
                 break
 
         # if requested and this is not the threshold step, print previous factor EV
-        elif (factor_n > 1) & (print_table):
+        elif (factor_n > 1) and print_table:
             print(f"{last_factor_n}\t{last_per_par:.2f}\t\t\t\t{last_ev_efa:.2f}")
 
         # if this is the last factor, also print the current factor EV if requested
-        if (print_table) & (factor_n == len(par_per.iloc[:facs_to_display])):
+        if print_table and factor_n == len(par_per.iloc[:facs_to_display]):
             print(f"{factor_n}\t{cur_ev_par:.2f}\t\t\t\t{cur_ev_efa:.2f}")
 
         last_factor_n = factor_n
@@ -299,7 +306,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     print_details (bool): If True, print details for each step of the iterative process.
     print_par_plot (bool): If True, print parallel analysis scree plot for each step of the iterative process.
     print_par_table (bool): If True, print table with eigenvalues from the parallel each step of the iterative process.
-    par_k (int): Number of EFAs over a random matric for parallel analysis.
+    par_k (int): Number of EFAs over a random matrix for parallel analysis.
     par_n_facs (int): Number of factors to display for parallel analysis.
     iterative (bool): NOT IMPLEMENTED YET. If True, run iterative process. If False, run EFA with all variables.
     auto_stop_par (bool): If True, stop the iterative process when the suggested number of factors from parallel analysis is lower than the requested number of factors. In that case, no EFA object or list of variables is returned.
@@ -319,7 +326,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
 
     # Loop until final solution is found
     i = 1
-    while final_solution == False:
+    while not final_solution:
         # Fit EFA
         efa.fit(data[curr_vars])
         print(f"Fitted solution #{i}\n")
@@ -331,14 +338,14 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                 data, curr_vars, k=par_k, facs_to_display=par_n_facs,
                 print_graph=print_par_plot, print_table=print_par_table)
 
-            if (suggested_n_facs < n_facs) & auto_stop_par:
+            if (suggested_n_facs < n_facs) and auto_stop_par:
                 print("\nAuto-Stop based on parallel analysis: "
                       f"Parallel analysis suggests {suggested_n_facs} factors. "
                       f"That is less than the currently requested number of factors ({n_facs})."
                       "Iterative Efa stopped. No EFA object or list of variables will be returned.")
                 return
 
-        # Check 1: Check communcalities
+        # Check 1: Check communalities
         print("\nChecking for low communalities")
         comms = pd.DataFrame(
             efa.get_communalities(),
@@ -357,7 +364,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             for item in bad_items:
                 if print_details:
                     print(f"\nRemoved item {item}\nCommunality: {comms.loc[item, 'Communality']:.4f}\n")
-                    if items_descr:
+                    if items_descr is not None:
                         print(f"Item description: {items_descr[item]}\n")
                 curr_vars.remove(item)
             i += 1
@@ -378,7 +385,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             for item in bad_items:
                 if print_details:
                     print(f"\nRemoved item {item}\nMain (absolute) Loading: {abs(loadings.loc[item]).max():.4f}\n")
-                    if items_descr:
+                    if items_descr is not None:
                         print(f"Item description: {items_descr[item]}\n")
                 curr_vars.remove(item)
             i += 1
@@ -393,8 +400,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         crossloads_df["main_load"] = abs(loadings).max(axis=1)
         crossloads_df["cross_load"] = abs(loadings).apply(
             lambda row: row.nlargest(2).values[-1], axis=1)
-        crossloads_df["diff"] = crossloads_df["main_load"] - \
-            crossloads_df["cross_load"]
+        crossloads_df["diff"] = crossloads_df["main_load"] - crossloads_df["cross_load"]
 
         mask_high_cross = (crossloads_df["cross_load"] > cross_thres) | (
             crossloads_df["diff"] < load_diff_thresh)
@@ -412,7 +418,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             for item in bad_items:
                 if print_details:
                     print(f"Removed item {item}\nLoadings: \n{loadings.loc[item]}\n")
-                    if items_descr:
+                    if items_descr is not None:
                         print(f"Item description: {items_descr[item]}\n")
                 curr_vars.remove(item)
             i += 1
@@ -429,51 +435,54 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         else:
             print("Determinant is smaller than 0.00001!")
             print(
-                "Consider using stricer criteria and/or removing highly correlated vars")
+                "Consider using stricter criteria and/or removing highly correlated vars")
 
         kmo_check(data[curr_vars], curr_vars, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
 
         # Check for Heywood cases
         comms = efa.get_communalities()
         if comms.max() >= 1.0:
-            print(f"Heywood case found for item {items[comms.argmax()]}. Communality: {comms.max()}")
+            print(f"Heywood case found for item {curr_vars[comms.argmax()]}. Communality: {comms.max()}")
         else:
             print("No Heywood case found.")
 
     return (efa, curr_vars)
 
 # Function to print main loadings for each factor
-def print_sorted_loadings(efa, item_lables, load_thresh=0.4, descr=[]):
+def print_sorted_loadings(efa, item_labels, load_thresh=0.4, descr=None):
     """Print strongly loading variables for each factor. Will only print loadings above load_thresh for each factor.
 
     Parameters:
     efa (object): EFA object. Has to be created with factor_analyzer package.
-    item_lables (list): List of item labels
+    item_labels (list): List of item labels
     load_thresh (float): Threshold for main loadings. Only loadings above this threshold will be printed for each factor.
-    descr (list): List of item descriptions. If empty, no item description will be printed.
+    descr (list or dict): List or dictionary of item descriptions. If provided, item descriptions will be printed.
 
     Returns:
     None
     """
 
-    loadings = pd.DataFrame(efa.loadings_, index=item_lables)
+    loadings = pd.DataFrame(efa.loadings_, index=item_labels)
     n_load = loadings.shape[1]
 
-    if len(descr) > 0:
-        loadings["descr"] = loadings.apply(lambda x: descr[x.name], axis=1)
+    if descr is not None:
+        if isinstance(descr, list):
+            loadings["descr"] = descr
+        elif isinstance(descr, dict):
+            loadings["descr"] = loadings.index.map(descr)
 
-    for i in range(0, n_load):
+    for i in range(n_load):
         mask_relev_loads = abs(loadings[i]) > load_thresh
         sorted_loads = loadings[mask_relev_loads].sort_values(
             i, key=abs, ascending=False)
         print(f"Relevant loadings for factor {i}")
-        if len(descr) > 0:
+        if descr is not None:
             print(sorted_loads[[i, "descr"]].to_string(), "\n")
         else:
             print(sorted_loads[i].to_string(), "\n")
 
 # Function to automatically reverse-code (Likert-scale) items where necessary
-def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max_score=5):
+def rev_items_and_return(df, efa, item_labels, load_thresh=0.4, min_score=1, max_score=5):
     """Takes an EFA object and automatically reverse-codes (Likert-scale) items where necessary
     and adds the reverse-coded version to a new dataframe.
     Will only reverse-code items with main loadings above load_thresh for each factor.
@@ -481,7 +490,7 @@ def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max
     Parameters:
     df (pandas dataframe): Dataframe containing items to be reverse-coded
     efa (object): EFA object. Has to be created with factor_analyzer package.
-    item_lables (list): List of item labels
+    item_labels (list): List of item labels
     load_thresh (float): Threshold for main loadings. Only loadings above this threshold will be reverse-coded for each factor.
     min_score (int): Minimum possible score for items
     max_score (int): Maximum possible score for items
@@ -490,15 +499,15 @@ def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max
     (new_df, items_per_fact_dict): Tuple containing new dataframe with reverse-coded items and dictionary with a list of items per factor
     """
     new_df = df.copy()
-    loadings = pd.DataFrame(efa.loadings_, index=item_lables)
+    loadings = pd.DataFrame(efa.loadings_, index=item_labels)
     n_load = loadings.shape[1]
 
     items_per_fact_dict = {}
 
     # loop through n factors
     # determine relevant items that are positive (can just be used as is)
-    # and items with negative loads (need to be refersed)
-    for i in range(0, n_load):
+    # and items with negative loads (need to be reversed)
+    for i in range(n_load):
         mask_pos_loads = loadings[i] > load_thresh
         mask_neg_loads = loadings[i] < -load_thresh
         pos_items = loadings[mask_pos_loads].index.tolist()
@@ -509,13 +518,13 @@ def rev_items_and_return(df, efa, item_lables, load_thresh=0.4, min_score=1, max
 
         # create reverse-coded item in new_df for items with negative loadings
         for item in neg_items:
-            rev_item_name = item + "_rev"
-            new_df[rev_item_name] = (new_df[item] - (max_score+min_score)) * -1
+            rev_item_name = f"{item}_rev"
+            new_df[rev_item_name] = (new_df[item] - (max_score + min_score)) * -1
             items_per_fact_dict[i].append(rev_item_name)
 
-    return (new_df, items_per_fact_dict)
+    return new_df, items_per_fact_dict
 
-def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_total", "omega_hier"], check_if_excluded = True, print_results = True, return_results = True):
+def factor_int_reliability(df, items_per_factor, measures=["cronbach", "omega_total", "omega_hier"], check_if_excluded=True, print_results=True, return_results=True):
     """Calculates and prints the internal reliability for each factor in a dataframe.
     Requires reliabilipy package.
     Available reliability measures are Cronbach's alpha, Omega Total and Omega Hierarchical.
@@ -535,7 +544,7 @@ def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_
     fac_reliab(pd.DataFrame): Dataframe with reliability estimates for each factor
     When check_if_excluded is True, returns a tuple with the following elements:
     fac_reliab(pd.DataFrame): Dataframe with reliability estimates for each factor
-    fac_reliab_excl(dict): Dictionary with reliability estimates for each factor when each item is excluded. Keys are factor numbers, values are dataframes with reliability estimates. Each row gives reliability estimates fore excluding one item from that factor.
+    fac_reliab_excl(dict): Dictionary with reliability estimates for each factor when each item is excluded. Keys are factor numbers, values are dataframes with reliability estimates. Each row gives reliability estimates for excluding one item from that factor.
     """
 
     # Create df to store measures for whole factors
@@ -545,32 +554,25 @@ def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_
         fac_reliab_excl = {}
     
     # Loop over factors
-    for factor_n in items_per_factor:
-
-        items = items_per_factor[factor_n]
-
+    for factor_n, items in items_per_factor.items():
         if len(items) > 2:
-            
             ra = reliability_analysis(raw_dataset=df[items], is_corr_matrix=False, impute="median")
 
             # Check for Heywood case
-            # relaiabilipy runs into trouble, when fa_g is a Heywood case
+            # reliabilipy runs into trouble when fa_g is a Heywood case
             # Will catch Warning and warn the user about the Heywood case
             # In general good idea to check for Heywood case though
             # will also check for Heywood case for fa_f and warn if there is one
             
-            with warnings.catch_warnings(), np.errstate(invalid="warn"):
-                warnings.filterwarnings('error', category=RuntimeWarning, message="invalid value encountered in double_scalars")
-                try:
-                    ra.fit()
-                except Warning as err:
-                    with np.errstate(invalid='ignore'):
-                        ra.fit()
-                        comms_g = ra.fa_g.get_communalities()
-                        if comms_g.max() >= 1.0:
-                            print(f"Heywood case found for item {items[comms_g.argmax()]} for the common factor of factor #{factor_n}! Communality: {comms_g.max()}")
-                        else:
-                            print(f"Warning for factor {factor_n}! Error: {err}")
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                ra.fit()
+                if len(w) > 0:
+                    comms_g = ra.fa_g.get_communalities()
+                    if comms_g.max() >= 1.0:
+                        print(f"Heywood case found for item {items[comms_g.argmax()]} for the common factor of factor #{factor_n}! Communality: {comms_g.max()}")
+                    else:
+                        print(f"Warning for factor {factor_n}! Error: {w[-1].message}")
 
             # Also check fa_f for Heywood case
             comms_f = ra.fa_f.get_communalities()
@@ -586,36 +588,32 @@ def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_
         
             if check_if_excluded:
                 if len(items) > 3:
-                    fac_reliab_excl[factor_n] = pd.DataFrame(index=items_per_factor[factor_n], columns=measures)
+                    fac_reliab_excl[factor_n] = pd.DataFrame(index=items, columns=measures)
                     # loop over items for current factor
-                    # compute cronbach's alpha by excluding one item at a time
+                    # compute reliability measures by excluding one item at a time
                     for cur_item in items:
                         # create list with all items except current item
-                        items_wo_cur_item = copy.deepcopy(items)
-                        items_wo_cur_item.remove(cur_item)
+                        items_wo_cur_item = [item for item in items if item != cur_item]
 
                         ra_excl = reliability_analysis(raw_dataset=df[items_wo_cur_item], is_corr_matrix=False, impute="median", n_factors_f=2)
 
                         # Also check fa_g and fa_f for Heywood case here
-                        with warnings.catch_warnings(), np.errstate(invalid="warn"):
-                            warnings.filterwarnings('error', category=RuntimeWarning, message="invalid value encountered in double_scalars")
-                            try:
-                                ra_excl.fit()
-                            except Warning as err:
-                                with np.errstate(invalid='ignore'):
-                                    ra_excl.fit()
-                                    comms_excl = ra_excl.fa_g.get_communalities()
-                                    if comms_excl.max() >= 1.0:
-                                        print(
-                                            f"Heywood case found while excluding {cur_item} from factor # {factor_n}! " \
-                                            f"Heywood case for {items_wo_cur_item[comms_excl.argmax()]} for the common factor. " \
-                                            f"Communality: {comms_excl.max()}"
-                                            )
-                                    else:
-                                        print(
-                                            f"Warning while while excluding {cur_item} from factor # {factor_n}! " \
-                                            f"Error: {err}"
-                                            )
+                        with warnings.catch_warnings(record=True) as w:
+                            warnings.simplefilter("always")
+                            ra_excl.fit()
+                            if len(w) > 0:
+                                comms_excl = ra_excl.fa_g.get_communalities()
+                                if comms_excl.max() >= 1.0:
+                                    print(
+                                        f"Heywood case found while excluding {cur_item} from factor # {factor_n}! " \
+                                        f"Heywood case for {items_wo_cur_item[comms_excl.argmax()]} for the common factor. " \
+                                        f"Communality: {comms_excl.max()}"
+                                    )
+                                else:
+                                    print(
+                                        f"Warning while excluding {cur_item} from factor # {factor_n}! " \
+                                        f"Error: {w[-1].message}"
+                                    )
 
                         # Also check fa_f for Heywood case
                         comms_f_excl = ra_excl.fa_f.get_communalities()
@@ -624,7 +622,7 @@ def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_
                                 f"Heywood case found while excluding {cur_item} from factor # {factor_n}! " \
                                 f"Heywood case for {items_wo_cur_item[comms_f_excl.argmax()]} for the group factors. " \
                                 f"Communality: {comms_f_excl.max()}"
-                                )
+                            )
                         
                         if "cronbach" in measures:
                             fac_reliab_excl[factor_n].loc[cur_item, "cronbach"] = ra_excl.alpha_cronbach
@@ -644,7 +642,6 @@ def factor_int_reliability(df, items_per_factor, measures = ["cronbach", "omega_
             fac_reliab.loc[factor_n, "Spearman-Brown"] = spear_brown_rel
         else:
             print(f"Factor {factor_n} has only one item, cannot compute reliability.")
-
 
     # print results
     if print_results:
