@@ -158,7 +158,7 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
 def parallel_analysis(
     df, vars_li, k=200, facs_to_display=15, print_graph=True,
     print_table=True, return_rec_n=True, extraction="minres",
-    percentile=99, standard=1.1):
+    percentile=99, standard=1.1, missing='pairwise'):
     """Function to perform parallel analysis on a dataset.
 
     Parameters:
@@ -172,47 +172,58 @@ def parallel_analysis(
     extraction (str): extraction method to use for the EFA/PCA. Default is "minres". Other options are "ml" (maximum likelihood), "principal" (principal factors), and "components" (principal components).
     percentile (int): against which percentile to compare the eigenvalues. Default is 99.
     standard (float): how much higher the eigenvalues should be compared to the random dataset. Default is 1.1 (10% higher).
+    missing (str): Method to handle missing data. 'pairwise' for pairwise deletion,
+                   'listwise' for listwise deletion. Default is 'pairwise'.
 
     Returns:
     suggested_factors: number of factors suggested by parallel analysis
     """
     # EFA with no rotation to get EVs
+    if missing not in ['pairwise', 'listwise']:
+        raise ValueError("missing must be either 'pairwise' or 'listwise'")
+    
+    if missing == 'listwise':
+        # Remove rows with any NaN values
+        df = df.dropna()
+        corr_matrix = df[vars_li].corr()
+        n = len(df)
+    else:  # pairwise
+        # Remove rows with all NaN values
+        df = df.dropna(how='all')
+        # Calculate correlation matrix with pairwise deletion
+        corr_matrix = df[vars_li].corr(method='pearson', min_periods=1)
+        n = df[vars_li].notna().sum().min()  # Use the minimum number of non-missing values
+    
+    m = len(vars_li)
+    
+    # EFA with no rotation to get EVs
     if extraction == "components":
-        efa = fa.FactorAnalyzer(rotation=None)
-        efa.fit(df[vars_li])
-        # Eigenvalues are original eigenvalues for PCA
-        evs = efa.get_eigenvalues()[0]
+        efa = fa.FactorAnalyzer(rotation=None, n_factors=m)
+        efa.fit(corr_matrix)
+        evs = efa.eigenvalues
     else:
-        efa = fa.FactorAnalyzer(rotation=None, method=extraction)
-        efa.fit(df[vars_li])
-        # Eigenvalues are common factor eigenvalues for EFA
-        evs = efa.get_eigenvalues()[1]
-
-    # Determine size of original dataset for creation of random dataset
-    n, m = df[vars_li].shape
-
+        efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
+        efa.fit(corr_matrix)
+        evs = efa.eigenvalues
+    
     # Prepare FactorAnalyzer object
     if extraction == "components":
-        par_efa = fa.FactorAnalyzer(rotation=None)
+        par_efa = fa.FactorAnalyzer(rotation=None, n_factors=m)
     else:
-        par_efa = fa.FactorAnalyzer(rotation=None, method=extraction)
-
+        par_efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
+    
     # Create df to store the eigenvalues
-    ev_par_df = pd.DataFrame(columns=range(1, m+1))
-
-    # Run the fit 'k' times over a random matrix
     ev_par_list = []
+    
+    # Run the fit 'k' times over a random matrix
     for _ in range(k):
-        par_efa.fit(np.random.normal(size=(n, m)))
-        if extraction == "components":
-            cur_ev_series = pd.Series(par_efa.get_eigenvalues()[0], index=range(1, m+1))
-        else:
-            cur_ev_series = pd.Series(par_efa.get_eigenvalues()[1], index=range(1, m+1))
-        ev_par_list.append(cur_ev_series)
+        random_data = np.random.normal(size=(n, m))
+        random_corr = np.corrcoef(random_data.T)
+        par_efa.fit(random_corr)
+        ev_par_list.append(pd.Series(par_efa.eigenvalues, index=range(1, m+1)))
     
     ev_par_df = pd.DataFrame(ev_par_list)
-    ev_par_df = ev_par_df.apply(pd.to_numeric)
-
+    
     # get percentile for the evs
     par_per = ev_par_df.quantile(percentile/100)
 
