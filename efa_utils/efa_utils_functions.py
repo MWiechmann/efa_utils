@@ -200,11 +200,11 @@ def parallel_analysis(
     if extraction == "components":
         efa = fa.FactorAnalyzer(rotation=None, n_factors=m)
         efa.fit(corr_matrix)
-        evs = efa.eigenvalues
+        evs = efa.get_eigenvalues()[0]
     else:
         efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
         efa.fit(corr_matrix)
-        evs = efa.eigenvalues
+        evs = efa.get_eigenvalues()[0]
     
     # Prepare FactorAnalyzer object
     if extraction == "components":
@@ -220,7 +220,7 @@ def parallel_analysis(
         random_data = np.random.normal(size=(n, m))
         random_corr = np.corrcoef(random_data.T)
         par_efa.fit(random_corr)
-        ev_par_list.append(pd.Series(par_efa.eigenvalues, index=range(1, m+1)))
+        ev_par_list.append(pd.Series(par_efa.get_eigenvalues()[0], index=range(1, m+1)))
     
     ev_par_df = pd.DataFrame(ev_par_list)
     
