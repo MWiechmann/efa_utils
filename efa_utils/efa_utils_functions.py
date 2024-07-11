@@ -495,14 +495,17 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         final_solution = True
 
         corrs = data[curr_vars].corr()
-        det = np.linalg.det(corrs)
-        print(f"\nDeterminant of correlation matrix: {det}")
-        if det > 0.00001:
-            print("Determinant looks good!")
-        else:
-            print("Determinant is smaller than 0.00001!")
-            print(
-                "Consider using stricter criteria and/or removing highly correlated vars")
+        try:
+            det = np.linalg.det(corrs)
+            print(f"\nDeterminant of correlation matrix: {det}")
+            if det > 0.00001:
+                print("Determinant looks good!")
+            else:
+                print("Determinant is smaller than 0.00001!")
+                print(
+                    "Consider using stricter criteria and/or removing highly correlated vars")
+        except Exception as e:
+            print(f"Error during determinant calculation: {e}")
 
         try:
             kmo_check(data[curr_vars], curr_vars, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
