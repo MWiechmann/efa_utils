@@ -159,8 +159,7 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
     vars_descr (pandas dataframe or dictionary): Dataframe or dictionary containing the variable descriptions (variable names as index/key). If provided, the function will also print the variable descriptions additionally to the variable names.
 
     Returns:
-    kmo_per_variable (numpy.ndarray) – The KMO score per item.
-    kmo_total (float) – The overall KMO score.
+    kmo (numpy.ndarray): Array with the KMO score per item and the overall KMO score.
     """
     # drop missing values
     if dropna_thre > 0:
@@ -505,7 +504,10 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             print(
                 "Consider using stricter criteria and/or removing highly correlated vars")
 
-        kmo_check(data[curr_vars], curr_vars, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
+        try:
+            kmo_check(data[curr_vars], curr_vars, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
+        except Exception as e:
+            print(f"Error during KMO check: {e}")
 
         # Check for Heywood cases
         comms = efa.get_communalities()
