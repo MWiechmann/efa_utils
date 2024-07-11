@@ -17,20 +17,28 @@ except ImportError:
     pass
 
 # Function to reduce multicollinearity
-def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_details=True, deletion_method='pairwise'):
+def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_details=True, deletion_method='pairwise', keep_vars=None):
     """
     Function to reduce multicollinearity in a dataset (intended for EFA).
     Uses the determinant of the correlation matrix to determine if multicollinearity is present.
     If the determinant is below a threshold (0.00001 by default),
     the function will drop the variable with the highest VIF until the determinant is above the threshold.
 
+    In cases where multiple variables have the same highest VIF, the function uses the following tiebreakers:
+    1. The variable with the highest sum of absolute correlations with other variables is chosen.
+    2. If there's still a tie, the variable with the most missing data is chosen.
+
     Parameters:
     df (pandas dataframe): dataframe containing the variables to be checked for multicollinearity
     vars_li (list): list of variables to be checked for multicollinearity
-    det_thre (float): Threshold for the determinant of the correlation matrix. Default is 0.00001. If the determinant is below this threshold, the function will drop the variable with the highest VIF until the determinant is above the threshold.
-    vars_descr (list): Dataframe or dictionary containing the variable descriptions (variable names as index/key). If provided, the function will also print the variable descriptions additionally to the variable names.
+    det_thre (float): Threshold for the determinant of the correlation matrix. Default is 0.00001. 
+                      If the determinant is below this threshold, the function will drop the variable 
+                      with the highest VIF until the determinant is above the threshold.
+    vars_descr (list): Dataframe or dictionary containing the variable descriptions (variable names as index/key). 
+                       If provided, the function will also print the variable descriptions additionally to the variable names.
     print_details (bool): If True, the function will print a detailed report of the process. Default is True.
     deletion_method (str): Method for handling missing data. Options are 'listwise' or 'pairwise' (default).
+    keep_vars (list): List of variables that should not be removed during the multicollinearity reduction process.
 
     Returns:
     reduced_vars(list): List of variables after multicollinearity reduction.
@@ -39,6 +47,8 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
         raise ValueError("deletion_method must be either 'listwise' or 'pairwise'")
 
     reduced_vars = copy.deepcopy(vars_li)
+    if keep_vars is None:
+        keep_vars = []
     print("Beginning check for multicollinearity")
     
     if deletion_method == 'listwise':
@@ -82,7 +92,30 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
             print("All VIF calculations resulted in NaN. Cannot proceed with multicollinearity reduction.")
             return reduced_vars
 
-        vif_max = vif_data.idxmax(), vif_data.max()
+        # Remove keep_vars from consideration
+        vif_data_filtered = vif_data[~vif_data.index.isin(keep_vars)]
+        
+        if vif_data_filtered.empty:
+            print("All remaining variables are in the keep_vars list. Cannot proceed with multicollinearity reduction.")
+            return reduced_vars
+
+        # Find variables with the highest VIF
+        max_vif = vif_data_filtered.max()
+        max_vif_vars = vif_data_filtered[vif_data_filtered == max_vif].index.tolist()
+
+        if len(max_vif_vars) > 1:
+            # If there's a tie, use correlation as a tiebreaker
+            corr_sums = vars_corr[max_vif_vars].abs().sum()
+            max_corr_var = corr_sums.idxmax()
+            
+            if (corr_sums == corr_sums.max()).sum() > 1:
+                # If there's still a tie, use the amount of missing data as a final tiebreaker
+                missing_counts = df[max_vif_vars].isnull().sum()
+                max_corr_var = missing_counts.idxmax()
+            
+            vif_max = (max_corr_var, vif_data_filtered[max_corr_var])
+        else:
+            vif_max = (max_vif_vars[0], max_vif)
 
         if print_details:
             print(f"Excluded item {vif_max[0]}. VIF: {vif_max[1]:.2f}")
