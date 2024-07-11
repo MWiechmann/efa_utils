@@ -347,7 +347,8 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                   comm_thresh=0.2, main_thresh=0.4, cross_thres=0.3, load_diff_thresh=0.2,
                   print_details=False, print_par_plot=False, print_par_table=False,
                   par_k=100, par_n_facs=15, iterative=True, auto_stop_par=False,
-                  items_descr=None):
+                  items_descr=None, do_det_check=True,
+                  do_kmo_check=True, kmo_dropna_thre=0):
     """Run EFA with iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process.
 
     Parameters:
@@ -367,6 +368,9 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     iterative (bool): NOT IMPLEMENTED YET. If True, run iterative process. If False, run EFA with all variables.
     auto_stop_par (bool): If True, stop the iterative process when the suggested number of factors from parallel analysis is lower than the requested number of factors. In that case, no EFA object or list of variables is returned.
     items_descr (pandas series): Series with item descriptions. If provided, the function will print the item description for each variable that is dropped from the analysis.
+    do_det_check (bool): If True, check the determinant of the correlation matrix after the final solution is found.
+    do_kmo_check (bool): If True, check the Kaiser-Meyer-Olkin measure of sampling adequacy after the final solution is found.
+    kmo_dropna_thre (int): Threshold for the number of missing values. If the number of missing values is above this threshold, the function will drop the variable. If the SVD does not converge, try increasing this threshold.
 
     Returns:
     (efa, curr_vars): Tuple with EFA object and list of variables that were analyzed in the last step of the iterative process.
@@ -494,23 +498,25 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         print("Final solution reached.")
         final_solution = True
 
-        corrs = data[curr_vars].corr()
-        try:
-            det = np.linalg.det(corrs)
-            print(f"\nDeterminant of correlation matrix: {det}")
-            if det > 0.00001:
-                print("Determinant looks good!")
-            else:
-                print("Determinant is smaller than 0.00001!")
-                print(
-                    "Consider using stricter criteria and/or removing highly correlated vars")
-        except Exception as e:
-            print(f"Error during determinant calculation: {e}")
+        if do_det_check:
+            try:
+                corrs = data[curr_vars].corr()
+                det = np.linalg.det(corrs)
+                print(f"\nDeterminant of correlation matrix: {det}")
+                if det > 0.00001:
+                    print("Determinant looks good!")
+                else:
+                    print("Determinant is smaller than 0.00001!")
+                    print(
+                        "Consider using stricter criteria and/or removing highly correlated vars")
+            except Exception as e:
+                print(f"Error during determinant calculation: {e}")
 
-        try:
-            kmo_check(data[curr_vars], curr_vars, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
-        except Exception as e:
-            print(f"Error during KMO check: {e}")
+        if do_kmo_check:
+            try:
+                kmo_check(data[curr_vars], curr_vars, dropna_thre=kmo_dropna_thre, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
+            except Exception as e:
+                print(f"Error during KMO check: {e}")
 
         # Check for Heywood cases
         comms = efa.get_communalities()
