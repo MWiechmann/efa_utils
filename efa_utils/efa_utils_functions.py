@@ -375,6 +375,10 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     Returns:
     (efa, curr_vars): Tuple with EFA object and list of variables that were analyzed in the last step of the iterative process.
     """
+    # Convert vars_analsis to a list if it's an Index object
+    if isinstance(vars_analsis, pd.Index):
+        vars_analsis = vars_analsis.tolist()
+    
     # Initialize FactorAnalyzer object
     efa = fa.FactorAnalyzer(n_factors=n_facs, rotation=rotation_method)
 
@@ -429,7 +433,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             print(f"All communalities above {comm_thresh}\n")
         else:
             # save bad items and remove them
-            bad_items = comms[mask_low_comms].index
+            bad_items = comms[mask_low_comms].index.tolist()
             print(
                 f"Detected {len(bad_items)} items with low communality. Excluding them for next analysis.\n")
             for item in bad_items:
@@ -437,7 +441,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                     print(f"\nRemoved item {item}\nCommunality: {comms.loc[item, 'Communality']:.4f}\n")
                     if items_descr is not None:
                         print(f"Item description: {items_descr[item]}\n")
-                curr_vars.remove(item)
+            curr_vars = [var for var in curr_vars if var not in bad_items]
             i += 1
             continue
 
