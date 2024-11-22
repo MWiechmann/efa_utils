@@ -194,15 +194,15 @@ def parallel_analysis(
         # Direct PCA eigenvalues
         evs = np.linalg.eigvalsh(corr_matrix)[::-1]
     else:
-        efa = FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
+        efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
         efa.fit(corr_matrix)
         evs = efa.get_eigenvalues()[0]
 
     # Prepare FactorAnalyzer object for random data
     if extraction == "components":
-        par_efa = FactorAnalyzer(rotation=None, n_factors=m)
+        par_efa = fa.FactorAnalyzer(rotation=None, n_factors=m)
     else:
-        par_efa = FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
+        par_efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
 
     # Create list to store the eigenvalues from random data
     ev_par_list = []
