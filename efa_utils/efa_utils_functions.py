@@ -510,20 +510,31 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     return (analyzer, curr_vars)
 
 # Function to print main loadings for each factor/component
-def print_sorted_loadings(efa, item_labels, load_thresh=0.4, descr=None):
-    """Print strongly loading variables for each factor. Will only print loadings above load_thresh for each factor.
+def print_sorted_loadings(analyzer, item_labels, load_thresh=0.4, descr=None):
+    """Print strongly loading variables for each factor/component. Will only print loadings above load_thresh for each factor/component.
 
     Parameters:
-    efa (object): EFA object. Has to be created with factor_analyzer package.
+    analyzer (object): EFA or PCA object. For EFA, must be created with factor_analyzer package. For PCA, must be created with sklearn.decomposition.
     item_labels (list): List of item labels
-    load_thresh (float): Threshold for main loadings. Only loadings above this threshold will be printed for each factor.
+    load_thresh (float): Threshold for main loadings. Only loadings above this threshold will be printed for each factor/component.
     descr (list or dict): List or dictionary of item descriptions. If provided, item descriptions will be printed.
 
     Returns:
     None
     """
+    # Check if analyzer is a PCA object
+    is_pca = isinstance(analyzer, PCA)
 
-    loadings = pd.DataFrame(efa.loadings_, index=item_labels)
+    if is_pca:
+        # Calculate unrotated loadings from components
+        unrotated_loadings = analyzer.components_.T * np.sqrt(analyzer.explained_variance_)
+        # Apply rotation (using Oblimin by default)
+        rotator = Rotator(method="Oblimin")
+        rotated_loadings = rotator.fit_transform(unrotated_loadings)
+        loadings = pd.DataFrame(rotated_loadings, index=item_labels)
+    else:
+        loadings = pd.DataFrame(analyzer.loadings_, index=item_labels)
+
     n_load = loadings.shape[1]
 
     if descr is not None:
@@ -536,7 +547,7 @@ def print_sorted_loadings(efa, item_labels, load_thresh=0.4, descr=None):
         mask_relev_loads = abs(loadings[i]) > load_thresh
         sorted_loads = loadings[mask_relev_loads].sort_values(
             i, key=abs, ascending=False)
-        print(f"Relevant loadings for factor {i}")
+        print(f"Relevant loadings for {'component' if is_pca else 'factor'} {i}")
         if descr is not None:
             print(sorted_loads[[i, "descr"]].to_string(), "\n")
         else:

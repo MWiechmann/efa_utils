@@ -138,6 +138,26 @@ def test_print_sorted_loadings(sample_data):
     except Exception as e:
         pytest.fail(f"print_sorted_loadings raised {type(e).__name__} unexpectedly: {e}")
 
+def test_print_sorted_loadings_pca(sample_data):
+    try:
+        from sklearn.decomposition import PCA
+        vars_li = sample_data.columns.tolist()
+        pca, final_vars = iterative_efa(
+            sample_data, vars_li, n_facs=3,
+            comm_thresh=0.3, print_details=False,
+            print_par_plot=False, print_par_table=False,
+            use_pca=True
+        )
+        # Test that print_sorted_loadings runs without errors for PCA objects
+        try:
+            print_sorted_loadings(pca, final_vars)
+            # Verify output contains "component" instead of "factor"
+            # This would require capturing stdout, but we're at least ensuring no errors
+        except Exception as e:
+            pytest.fail(f"print_sorted_loadings with PCA raised {type(e).__name__} unexpectedly: {e}")
+    except ImportError:
+        pytest.skip("scikit-learn is not installed, skipping PCA test")
+
 def test_rev_items_and_return(sample_data):
     vars_li = sample_data.columns.tolist()
     efa, _ = iterative_efa(sample_data, vars_li, n_facs=3, comm_thresh=0.3, print_details=False, print_par_plot=False, print_par_table=False)
