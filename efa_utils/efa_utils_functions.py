@@ -31,10 +31,10 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
     Parameters:
     df (pandas dataframe): dataframe containing the variables to be checked for multicollinearity
     vars_li (list): list of variables to be checked for multicollinearity
-    det_thre (float): Threshold for the determinant of the correlation matrix. Default is 0.00001. 
-                      If the determinant is below this threshold, the function will drop the variable 
+    det_thre (float): Threshold for the determinant of the correlation matrix. Default is 0.00001.
+                      If the determinant is below this threshold, the function will drop the variable
                       with the highest VIF until the determinant is above the threshold.
-    vars_descr (list): Dataframe or dictionary containing the variable descriptions (variable names as index/key). 
+    vars_descr (list): Dataframe or dictionary containing the variable descriptions (variable names as index/key).
                        If provided, the function will also print the variable descriptions additionally to the variable names.
     print_details (bool): If True, the function will print a detailed report of the process. Default is True.
     deletion_method (str): Method for handling missing data. Options are 'listwise' or 'pairwise' (default).
@@ -50,7 +50,9 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
     if keep_vars is None:
         keep_vars = []
     print("Beginning check for multicollinearity")
-    
+
+    curr_vars = reduced_vars.copy()
+
     if deletion_method == 'listwise':
         vars_corr = df[reduced_vars].corr()
         count_missing = df[vars_li].isna().any(axis=1).sum()
@@ -68,146 +70,38 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
         return reduced_vars
 
     print("Starting to remove redundant variables by assessing multicollinearity with VIF...\n")
-    
+
     while det <= det_thre:
         if len(curr_vars) < 2:
             print(f"Not enough variables left (only {len(curr_vars)}). Stopping iteration.")
             return None, curr_vars
 
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            efa.fit(data[curr_vars])
-            if len(w) > 0:
-                print("Warning during EFA fitting:")
-                print(w[-1].message)
-                print("This may indicate high multicollinearity in the data.")
+        # Calculate VIF for current variables
+        vif_df = pd.DataFrame()
+        vif_df["Variable"] = curr_vars
+        vif_df["VIF"] = [vif(pd.DataFrame(df[curr_vars]).dropna().values, i) for i in range(len(curr_vars))]
 
-        print(f"Fitted solution #{i}\n")
+        # Exclude variables in keep_vars from being dropped
+        vif_df = vif_df[~vif_df["Variable"].isin(keep_vars)]
 
-        # print screeplot and/or table and/or check for auto-stopping for parallel analysis
-        # (if respective option was chosen)
-        if print_par_plot or print_par_table or auto_stop_par:
-            suggested_n_facs = parallel_analysis(
-                data, curr_vars, k=par_k, facs_to_display=par_n_facs,
-                print_graph=print_par_plot, print_table=print_par_table)
+        # Find variable with highest VIF
+        max_vif = vif_df["VIF"].max()
+        max_vif_var = vif_df.loc[vif_df["VIF"] == max_vif, "Variable"].iloc[0]
 
-            if (suggested_n_facs < n_facs) and auto_stop_par:
-                print("\nAuto-Stop based on parallel analysis: "
-                      f"Parallel analysis suggests {suggested_n_facs} factors. "
-                      f"That is less than the currently requested number of factors ({n_facs})."
-                      "Iterative Efa stopped. No EFA object or list of variables will be returned.")
-                return
+        # Remove variable with highest VIF
+        curr_vars.remove(max_vif_var)
+        print(f"Removed variable '{max_vif_var}' with VIF={max_vif}")
 
-        # Check 1: Check communalities
-        print("\nChecking for low communalities")
-        comms = pd.DataFrame(
-            efa.get_communalities(),
-            index=data[curr_vars].columns,
-            columns=['Communality']
-        )
-        mask_low_comms = comms["Communality"] < comm_thresh
+        # Recalculate determinant
+        if deletion_method == 'listwise':
+            vars_corr = df[curr_vars].corr()
+        else:  # pairwise
+            vars_corr = df[curr_vars].corr(method='pearson', min_periods=1)
 
-        if comms[mask_low_comms].empty:
-            print(f"All communalities above {comm_thresh}\n")
-        else:
-            # save bad items and remove them
-            bad_items = comms[mask_low_comms].index.tolist()
-            print(
-                f"Detected {len(bad_items)} items with low communality. Excluding them for next analysis.\n")
-            for item in bad_items:
-                if print_details:
-                    print(f"\nRemoved item {item}\nCommunality: {comms.loc[item, 'Communality']:.4f}\n")
-                    if items_descr is not None:
-                        print(f"Item description: {items_descr[item]}\n")
-            curr_vars = [var for var in curr_vars if var not in bad_items]
-            i += 1
-            continue
+        det = np.linalg.det(vars_corr)
+        print(f"Determinant after removing '{max_vif_var}': {det}\n")
 
-        # Check 2: Check for low main loading
-        print("Checking for low main loading")
-        loadings = pd.DataFrame(efa.loadings_, index=data[curr_vars].columns)
-        max_loadings = abs(loadings).max(axis=1)
-        mask_low_main = max_loadings < main_thresh
-        if max_loadings[mask_low_main].empty:
-            print(f"All main loadings above {main_thresh}\n")
-        else:
-            # save bad items and remove them
-            bad_items = max_loadings[mask_low_main].index
-            print(
-                f"Detected {len(bad_items)} items with low main loading. Excluding them for next analysis.\n")
-            for item in bad_items:
-                if print_details:
-                    print(f"\nRemoved item {item}\nMain (absolute) Loading: {abs(loadings.loc[item]).max():.4f}\n")
-                    if items_descr is not None:
-                        print(f"Item description: {items_descr[item]}\n")
-                curr_vars.remove(item)
-            i += 1
-            continue
-
-        # check 3: Check for high cross loadings
-        print("Checking high cross loadings")
-
-        # create df that stores main_load, largest crossload and difference between the two
-        crossloads_df = pd.DataFrame(index=curr_vars)
-
-        crossloads_df["main_load"] = abs(loadings).max(axis=1)
-        crossloads_df["cross_load"] = abs(loadings).apply(
-            lambda row: row.nlargest(2).values[-1], axis=1)
-        crossloads_df["diff"] = crossloads_df["main_load"] - crossloads_df["cross_load"]
-
-        mask_high_cross = (crossloads_df["cross_load"] > cross_thres) | (
-            crossloads_df["diff"] < load_diff_thresh)
-
-        if crossloads_df[mask_high_cross].empty:
-            print(
-                f"All cross-loadings below {cross_thres}"
-                f" and differences between main loading and crossloadings above {load_diff_thresh}.\n"
-            )
-        else:
-            # save bad items and remove them
-            bad_items = crossloads_df[mask_high_cross].index
-            print(
-                f"Detected {len(bad_items)} items with high cross loading. Excluding them for next analysis.\n")
-            for item in bad_items:
-                if print_details:
-                    print(f"Removed item {item}\nLoadings: \n{loadings.loc[item]}\n")
-                    if items_descr is not None:
-                        print(f"Item description: {items_descr[item]}\n")
-                curr_vars.remove(item)
-            i += 1
-            continue
-
-        print("Final solution reached.")
-        final_solution = True
-
-        if do_det_check:
-            try:
-                corrs = data[curr_vars].corr()
-                det = np.linalg.det(corrs)
-                print(f"\nDeterminant of correlation matrix: {det}")
-                if det > 0.00001:
-                    print("Determinant looks good!")
-                else:
-                    print("Determinant is smaller than 0.00001!")
-                    print(
-                        "Consider using stricter criteria and/or removing highly correlated vars")
-            except Exception as e:
-                print(f"Error during determinant calculation: {e}")
-
-        if do_kmo_check:
-            try:
-                kmo_check(data[curr_vars], curr_vars, dropna_thre=kmo_dropna_thre, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
-            except Exception as e:
-                print(f"Error during KMO check: {e}")
-
-        # Check for Heywood cases
-        comms = efa.get_communalities()
-        if comms.max() >= 1.0:
-            print(f"Heywood case found for item {curr_vars[comms.argmax()]}. Communality: {comms.max()}")
-        else:
-            print("No Heywood case found.")
-
-    return (efa, curr_vars)
+    return curr_vars
 
 # Function to check KMO
 def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=None):
@@ -236,7 +130,7 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         kmo = fa.factor_analyzer.calculate_kmo(df[vars_li])
-        
+
         # Check if we got the specific warning about Moore-Penrose inverse
         for warning in w:
             if "Moore-Penrose" in str(warning.message):
@@ -290,10 +184,10 @@ def parallel_analysis(
     Returns:
     suggested_factors: number of factors suggested by parallel analysis
     """
-    # EFA with no rotation to get EVs
+    # Check for valid missing parameter
     if missing not in ['pairwise', 'listwise']:
         raise ValueError("missing must be either 'pairwise' or 'listwise'")
-    
+
     if missing == 'listwise':
         # Remove rows with any NaN values
         df = df.dropna()
@@ -305,9 +199,9 @@ def parallel_analysis(
         # Calculate correlation matrix with pairwise deletion
         corr_matrix = df[vars_li].corr(method='pearson', min_periods=1)
         n = df[vars_li].notna().sum().min()  # Use the minimum number of non-missing values
-    
+
     m = len(vars_li)
-    
+
     # EFA with no rotation to get EVs
     if extraction == "components":
         efa = fa.FactorAnalyzer(rotation=None, n_factors=m)
@@ -317,29 +211,35 @@ def parallel_analysis(
         efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
         efa.fit(corr_matrix)
         evs = efa.get_eigenvalues()[0]
-    
+
     # Prepare FactorAnalyzer object
     if extraction == "components":
         par_efa = fa.FactorAnalyzer(rotation=None, n_factors=m)
     else:
         par_efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
-    
-    # Create df to store the eigenvalues
+
+    # Create list to store the eigenvalues
     ev_par_list = []
-    
+
     # Run the fit 'k' times over a random matrix
-    for _ in range(k):
+    successful_runs = 0
+    while successful_runs < k:
         random_data = np.random.normal(size=(n, m))
         random_corr = np.corrcoef(random_data.T)
-        par_efa.fit(random_corr)
-        ev_par_list.append(pd.Series(par_efa.get_eigenvalues()[0], index=range(1, m+1)))
-    
+        try:
+            par_efa.fit(random_corr)
+            ev_par_list.append(pd.Series(par_efa.get_eigenvalues()[0], index=range(1, m+1)))
+            successful_runs += 1
+        except np.linalg.LinAlgError:
+            # Skip iteration if the random_corr is singular
+            continue
+
     ev_par_df = pd.DataFrame(ev_par_list)
-    
+
     # get percentile for the evs
     par_per = ev_par_df.quantile(percentile/100)
 
-    if print_graph:
+    if print_graph and 'plt' in globals():
         # Draw graph
         plt.figure(figsize=(10, 6))
 
@@ -363,56 +263,37 @@ def parallel_analysis(
         plt.legend()
         plt.show()
 
-    # Determine threshold    
+    # Determine threshold
     # Also print out table with EVs if requested
     last_factor_n = 0
     last_per_par = 0
     last_ev_efa = 0
     found_threshold = False
-    suggested_factors = 1
+    suggested_factors = m  # Default to maximum number of factors
 
     if print_table:
-        # Create simple table with values for 95th percentile for random data and EVs for actual data
+        # Create simple table with values for random data and EVs for actual data
         print(
             f"Factor eigenvalues for the {percentile}th percentile of {k} random matrices and for survey data for first {facs_to_display} factors:\n")
         print(f"\033[1mFactor\tEV - random data {percentile}th perc.\tEV survey data\033[0m")
 
     # Loop through EVs to find threshold
-    # If requested also print table with EV for each number of factors
-    # Always print the row for the previous (!) factor -
-    # that way when we reach threshold the suggested number of factors can be made bold
-    for factor_n, cur_ev_par in par_per.iloc[:facs_to_display].items():
-        # factor_n start with 1, ev_efa is a list and index start at 0
-        # so the respective ev from ev_efa is factor_n - 1
-        cur_ev_efa = evs[factor_n-1]
+    for factor_n in range(1, facs_to_display + 1):
+        cur_ev_par = par_per.iloc[factor_n - 1]
+        cur_ev_efa = evs[factor_n - 1]
 
-        # If Threshold not found yet:
-        # Check if for current number factors the (EV from random data x standard) is >= EV from actual data
-        # If so, threshold has been crossed and the suggested number of factors is the previous step
-        if (factor_n > 1) and (cur_ev_par*standard >= cur_ev_efa) and (not found_threshold):
+        if not found_threshold and (cur_ev_par * standard >= cur_ev_efa):
             found_threshold = True
-            suggested_factors = factor_n-1
+            suggested_factors = factor_n - 1 if factor_n > 1 else 1
 
-            # if requested print EV for previous factor - make it BOLD
-            if print_table:
+            if print_table and factor_n > 1:
                 print(
-                    f"\033[1m{last_factor_n}\t{last_per_par:.2f}\t\t\t\t{last_ev_efa:.2f}\033[0m")
-            # the rest of the loop is only needed for printing the table
-            # so if no table is requested we can exit the loop here
-            else:
-                break
+                    f"\033[1m{factor_n - 1}\t{par_per.iloc[factor_n - 2]:.2f}\t\t\t\t{evs[factor_n - 2]:.2f}\033[0m")
+        elif print_table and factor_n > 1:
+            print(f"{factor_n - 1}\t{par_per.iloc[factor_n - 2]:.2f}\t\t\t\t{evs[factor_n - 2]:.2f}")
 
-        # if requested and this is not the threshold step, print previous factor EV
-        elif (factor_n > 1) and print_table:
-            print(f"{last_factor_n}\t{last_per_par:.2f}\t\t\t\t{last_ev_efa:.2f}")
-
-        # if this is the last factor, also print the current factor EV if requested
-        if print_table and factor_n == len(par_per.iloc[:facs_to_display]):
+        if factor_n == facs_to_display and print_table:
             print(f"{factor_n}\t{cur_ev_par:.2f}\t\t\t\t{cur_ev_efa:.2f}")
-
-        last_factor_n = factor_n
-        last_per_par = cur_ev_par
-        last_ev_efa = cur_ev_efa
 
     if print_table:
         print(
