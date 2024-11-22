@@ -1,7 +1,15 @@
 import pytest
 import pandas as pd
 import numpy as np
-from efa_utils import reduce_multicoll, kmo_check, parallel_analysis, iterative_efa, print_sorted_loadings, rev_items_and_return, factor_int_reliability
+from efa_utils import (
+    reduce_multicoll,
+    kmo_check,
+    parallel_analysis,
+    iterative_efa,
+    print_sorted_loadings,
+    rev_items_and_return,
+    factor_int_reliability
+)
 
 @pytest.fixture
 def sample_data():
@@ -97,3 +105,39 @@ def test_factor_int_reliability(sample_data):
         print(f"fac_reliab_excl keys: {fac_reliab_excl.keys()}")
     except ImportError:
         pytest.skip("reliabilipy is not installed, skipping this test")
+
+def test_kmo_check_warning_message():
+    # Create a dataset with highly correlated variables to trigger the warning
+    np.random.seed(0)
+    n_samples = 100
+    A = np.random.rand(n_samples)
+    # Create variables highly correlated with A
+    B = A * 0.99 + np.random.rand(n_samples) * 0.01
+    C = A * 0.98 + np.random.rand(n_samples) * 0.02
+
+    data = pd.DataFrame({'A': A, 'B': B, 'C': C})
+    vars_li = ['A', 'B', 'C']
+
+    # Capture the output
+    from io import StringIO
+    import sys
+    captured_output = StringIO()
+    sys.stdout = captured_output
+
+    # Run kmo_check to trigger the informative message
+    kmo_check(data, vars_li)
+
+    # Restore stdout
+    sys.stdout = sys.__stdout__
+
+    output = captured_output.getvalue()
+
+    # Check if the informative message is in the output
+    assert "The analysis detected high correlations between variables." in output, \
+        "Informative message not found in output"
+
+    # Optionally, check if the overall KMO is still printed
+    assert "Overall KMO" in output, "Overall KMO not found in output"
+
+    # Print output for debugging (optional)
+    print(output)
