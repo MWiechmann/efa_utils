@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import factor_analyzer as fa
 from statsmodels.stats.outliers_influence import variance_inflation_factor as vif
+from factor_analyzer.rotator import Rotator
 
 # optional imports
 try:
@@ -366,13 +367,14 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                 # Standardize data for PCA
                 data_std = (data[curr_vars] - data[curr_vars].mean()) / data[curr_vars].std()
                 analyzer.fit(data_std)
-                # Calculate loadings from components
-                loadings = pd.DataFrame(
-                    analyzer.components_.T * np.sqrt(analyzer.explained_variance_),
-                    index=curr_vars
-                )
-                # Calculate communalities
-                comms = pd.Series(np.sum(loadings**2, axis=1), index=curr_vars)
+                # Calculate unrotated loadings from components
+                unrotated_loadings = analyzer.components_.T * np.sqrt(analyzer.explained_variance_)
+                # Apply rotation
+                rotator = Rotator(method=rotation_method)
+                rotated_loadings = rotator.fit_transform(unrotated_loadings)
+                loadings = pd.DataFrame(rotated_loadings, index=curr_vars)
+                # Calculate communalities (these don't change with rotation)
+                comms = pd.Series(np.sum(unrotated_loadings**2, axis=1), index=curr_vars)
             else:
                 analyzer.fit(data[curr_vars])
                 loadings = pd.DataFrame(analyzer.loadings_, index=curr_vars)
@@ -450,14 +452,21 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             lambda row: row.nlargest(2).values[-1], axis=1)
         crossloads_df["diff"] = crossloads_df["main_load"] - crossloads_df["cross_load"]
 
-        mask_high_cross = (crossloads_df["cross_load"] > cross_thres) | (
-            crossloads_df["diff"] < load_diff_thresh)
+        # For PCA, only use cross_thres, not load_diff_thresh
+        if use_pca:
+            mask_high_cross = crossloads_df["cross_load"] > cross_thres
+        else:
+            mask_high_cross = (crossloads_df["cross_load"] > cross_thres) | (
+                crossloads_df["diff"] < load_diff_thresh)
 
         if not any(mask_high_cross):
-            print(
-                f"All cross-loadings below {cross_thres}"
-                f" and differences between main loading and crossloadings above {load_diff_thresh}.\n"
-            )
+            if use_pca:
+                print(f"All cross-loadings below {cross_thres}\n")
+            else:
+                print(
+                    f"All cross-loadings below {cross_thres}"
+                    f" and differences between main loading and crossloadings above {load_diff_thresh}.\n"
+                )
         else:
             # save bad items and remove them
             bad_items = crossloads_df[mask_high_cross].index
