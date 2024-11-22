@@ -70,77 +70,144 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
     print("Starting to remove redundant variables by assessing multicollinearity with VIF...\n")
     
     while det <= det_thre:
-        if deletion_method == 'listwise':
-            x_df = df.dropna(subset=reduced_vars)[reduced_vars]
-            vifs = [vif(x_df.values, i) for i in range(x_df.shape[1])]
-            vif_data = pd.Series(vifs, index=x_df.columns)
-        else:  # pairwise
-            vif_data = pd.Series(index=reduced_vars)
-            for col in reduced_vars:
-                x = df[reduced_vars].drop(columns=[col])
-                y = df[col]
-                mask = ~(x.isna().any(axis=1) | y.isna())
-                x_valid = x[mask]
-                y_valid = y[mask]
-                if x_valid.empty or y_valid.empty:
-                    print(f"Warning: No valid data for variable {col}. Skipping VIF calculation.")
-                    vif_data[col] = np.nan
-                else:
-                    vif_data[col] = vif(x_valid.values, x_valid.shape[1] - 1)  # subtract 1 because we dropped one column
+        if len(curr_vars) < 2:
+            print(f"Not enough variables left (only {len(curr_vars)}). Stopping iteration.")
+            return None, curr_vars
 
-        if vif_data.isnull().all():
-            print("All VIF calculations resulted in NaN. Cannot proceed with multicollinearity reduction.")
-            return reduced_vars
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            efa.fit(data[curr_vars])
+            if len(w) > 0:
+                print("Warning during EFA fitting:")
+                print(w[-1].message)
+                print("This may indicate high multicollinearity in the data.")
 
-        # Remove keep_vars from consideration
-        vif_data_filtered = vif_data[~vif_data.index.isin(keep_vars)]
-        
-        if vif_data_filtered.empty:
-            print("All remaining variables are in the keep_vars list. Cannot proceed with multicollinearity reduction.")
-            return reduced_vars
+        print(f"Fitted solution #{i}\n")
 
-        # Find variables with the highest VIF
-        max_vif = vif_data_filtered.max()
-        max_vif_vars = vif_data_filtered[vif_data_filtered == max_vif].index.tolist()
+        # print screeplot and/or table and/or check for auto-stopping for parallel analysis
+        # (if respective option was chosen)
+        if print_par_plot or print_par_table or auto_stop_par:
+            suggested_n_facs = parallel_analysis(
+                data, curr_vars, k=par_k, facs_to_display=par_n_facs,
+                print_graph=print_par_plot, print_table=print_par_table)
 
-        if len(max_vif_vars) > 1:
-            # If there's a tie, use correlation as a tiebreaker
-            corr_sums = vars_corr[max_vif_vars].abs().sum()
-            max_corr_var = corr_sums.idxmax()
-            
-            if (corr_sums == corr_sums.max()).sum() > 1:
-                # If there's still a tie, use the amount of missing data as a final tiebreaker
-                missing_counts = df[max_vif_vars].isnull().sum()
-                max_corr_var = missing_counts.idxmax()
-            
-            vif_max = (max_corr_var, vif_data_filtered[max_corr_var])
+            if (suggested_n_facs < n_facs) and auto_stop_par:
+                print("\nAuto-Stop based on parallel analysis: "
+                      f"Parallel analysis suggests {suggested_n_facs} factors. "
+                      f"That is less than the currently requested number of factors ({n_facs})."
+                      "Iterative Efa stopped. No EFA object or list of variables will be returned.")
+                return
+
+        # Check 1: Check communalities
+        print("\nChecking for low communalities")
+        comms = pd.DataFrame(
+            efa.get_communalities(),
+            index=data[curr_vars].columns,
+            columns=['Communality']
+        )
+        mask_low_comms = comms["Communality"] < comm_thresh
+
+        if comms[mask_low_comms].empty:
+            print(f"All communalities above {comm_thresh}\n")
         else:
-            vif_max = (max_vif_vars[0], max_vif)
+            # save bad items and remove them
+            bad_items = comms[mask_low_comms].index.tolist()
+            print(
+                f"Detected {len(bad_items)} items with low communality. Excluding them for next analysis.\n")
+            for item in bad_items:
+                if print_details:
+                    print(f"\nRemoved item {item}\nCommunality: {comms.loc[item, 'Communality']:.4f}\n")
+                    if items_descr is not None:
+                        print(f"Item description: {items_descr[item]}\n")
+            curr_vars = [var for var in curr_vars if var not in bad_items]
+            i += 1
+            continue
 
-        if print_details:
-            print(f"Excluded item {vif_max[0]}. VIF: {vif_max[1]:.2f}")
-            if vars_descr is not None and vif_max[0] in vars_descr:
-                print(f"('{vars_descr[vif_max[0]]}')")
-            print("")
+        # Check 2: Check for low main loading
+        print("Checking for low main loading")
+        loadings = pd.DataFrame(efa.loadings_, index=data[curr_vars].columns)
+        max_loadings = abs(loadings).max(axis=1)
+        mask_low_main = max_loadings < main_thresh
+        if max_loadings[mask_low_main].empty:
+            print(f"All main loadings above {main_thresh}\n")
+        else:
+            # save bad items and remove them
+            bad_items = max_loadings[mask_low_main].index
+            print(
+                f"Detected {len(bad_items)} items with low main loading. Excluding them for next analysis.\n")
+            for item in bad_items:
+                if print_details:
+                    print(f"\nRemoved item {item}\nMain (absolute) Loading: {abs(loadings.loc[item]).max():.4f}\n")
+                    if items_descr is not None:
+                        print(f"Item description: {items_descr[item]}\n")
+                curr_vars.remove(item)
+            i += 1
+            continue
 
-        reduced_vars.remove(vif_max[0])
+        # check 3: Check for high cross loadings
+        print("Checking high cross loadings")
 
-        if len(reduced_vars) < 2:
-            print("Less than 2 variables remaining. Stopping multicollinearity reduction.")
-            break
+        # create df that stores main_load, largest crossload and difference between the two
+        crossloads_df = pd.DataFrame(index=curr_vars)
 
-        if deletion_method == 'listwise':
-            vars_corr = df[reduced_vars].corr()
-        else:  # pairwise
-            vars_corr = df[reduced_vars].corr(method='pearson', min_periods=1)
-        
-        det = np.linalg.det(vars_corr)
+        crossloads_df["main_load"] = abs(loadings).max(axis=1)
+        crossloads_df["cross_load"] = abs(loadings).apply(
+            lambda row: row.nlargest(2).values[-1], axis=1)
+        crossloads_df["diff"] = crossloads_df["main_load"] - crossloads_df["cross_load"]
 
-    print(f"Done! Determinant is now: {det:.6f}")
-    count_removed = len(vars_li) - len(reduced_vars)
-    print(f"I have excluded {count_removed} redundant items with {len(reduced_vars)} items remaining")
+        mask_high_cross = (crossloads_df["cross_load"] > cross_thres) | (
+            crossloads_df["diff"] < load_diff_thresh)
 
-    return reduced_vars
+        if crossloads_df[mask_high_cross].empty:
+            print(
+                f"All cross-loadings below {cross_thres}"
+                f" and differences between main loading and crossloadings above {load_diff_thresh}.\n"
+            )
+        else:
+            # save bad items and remove them
+            bad_items = crossloads_df[mask_high_cross].index
+            print(
+                f"Detected {len(bad_items)} items with high cross loading. Excluding them for next analysis.\n")
+            for item in bad_items:
+                if print_details:
+                    print(f"Removed item {item}\nLoadings: \n{loadings.loc[item]}\n")
+                    if items_descr is not None:
+                        print(f"Item description: {items_descr[item]}\n")
+                curr_vars.remove(item)
+            i += 1
+            continue
+
+        print("Final solution reached.")
+        final_solution = True
+
+        if do_det_check:
+            try:
+                corrs = data[curr_vars].corr()
+                det = np.linalg.det(corrs)
+                print(f"\nDeterminant of correlation matrix: {det}")
+                if det > 0.00001:
+                    print("Determinant looks good!")
+                else:
+                    print("Determinant is smaller than 0.00001!")
+                    print(
+                        "Consider using stricter criteria and/or removing highly correlated vars")
+            except Exception as e:
+                print(f"Error during determinant calculation: {e}")
+
+        if do_kmo_check:
+            try:
+                kmo_check(data[curr_vars], curr_vars, dropna_thre=kmo_dropna_thre, check_item_kmos=True, return_kmos=False, vars_descr=items_descr)
+            except Exception as e:
+                print(f"Error during KMO check: {e}")
+
+        # Check for Heywood cases
+        comms = efa.get_communalities()
+        if comms.max() >= 1.0:
+            print(f"Heywood case found for item {curr_vars[comms.argmax()]}. Communality: {comms.max()}")
+        else:
+            print("No Heywood case found.")
+
+    return (efa, curr_vars)
 
 # Function to check KMO
 def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=False, vars_descr=None):
@@ -166,7 +233,20 @@ def kmo_check(df, vars_li, dropna_thre=0, check_item_kmos=True, return_kmos=Fals
         df = df.dropna(subset=vars_li, thresh=dropna_thre)
 
     # calculate KMO
-    kmo = fa.factor_analyzer.calculate_kmo(df[vars_li])
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        kmo = fa.factor_analyzer.calculate_kmo(df[vars_li])
+        
+        # Check if we got the specific warning about Moore-Penrose inverse
+        for warning in w:
+            if "Moore-Penrose" in str(warning.message):
+                print("\nNote: The analysis detected high correlations between variables.")
+                print("This is often normal in factor analysis and doesn't necessarily indicate a problem,")
+                print("especially given the high KMO values below.")
+                print("However, if you want to investigate further, you could:")
+                print("1. Check for extremely high correlations between variables (e.g., r > 0.9)")
+                print("2. Consider using the reduce_multicoll() function to address potential multicollinearity")
+                print("3. Examine if any variables are linear combinations of others\n")
 
     print(f"Overall KMO: {kmo[1]}")
 
