@@ -165,8 +165,24 @@ def parallel_analysis(
     df, vars_li, k=200, facs_to_display=15, print_graph=True,
     print_table=True, return_rec_n=True, extraction="minres",
     percentile=99, standard=1.1, missing='pairwise'):
-    """Function to perform parallel analysis on a dataset."""
+    """Function to perform parallel analysis on a dataset.
+    
+    Parameters:
+    df (pandas dataframe): Dataframe containing the data
+    vars_li (list): List of variables to analyze
+    k (int): Number of random datasets to generate. Default is 200.
+    facs_to_display (int): Number of factors to display in output. Default is 15.
+    print_graph (bool): Whether to print scree plot. Default is True.
+    print_table (bool): Whether to print table of eigenvalues. Default is True.
+    return_rec_n (bool): Whether to return recommended number of factors. Default is True.
+    extraction (str): Method for factor extraction. Default is "minres".
+    percentile (int): Percentile to use for random data. Default is 99.
+    standard (float): Multiplier for random data threshold. Default is 1.1.
+    missing (str): Method for handling missing data. Options are 'pairwise' or 'listwise'. Default is 'pairwise'.
 
+    Returns:
+    int: Suggested number of factors if return_rec_n is True
+    """
     # Check for valid missing parameter
     if missing not in ['pairwise', 'listwise']:
         raise ValueError("missing must be either 'pairwise' or 'listwise'")
@@ -254,38 +270,27 @@ def parallel_analysis(
         plt.legend()
         plt.show()
 
-    # Determine threshold
-    suggested_factors = m  # Default to maximum number of factors
+    # Find the suggested number of factors
+    suggested_factors = 0
+    for factor_n in range(1, facs_to_display + 1):
+        cur_ev_par = par_per.iloc[factor_n - 1]
+        cur_ev_efa = evs[factor_n - 1]
+        
+        if cur_ev_par * standard >= cur_ev_efa:
+            break
+        suggested_factors = factor_n
 
+    # Print table if requested
     if print_table:
-        # Print table header
-        print(
-            f"{'Factor':<10}{'EV - random data':<25}{'EV survey data':<15}"
-        )
+        print(f"\n{'Factor':<10}{'EV - random data':<25}{'EV survey data':<15}")
         print("-" * 50)
-
-        # Print eigenvalues for each factor
+        
         for factor_n in range(1, facs_to_display + 1):
             cur_ev_par = par_per.iloc[factor_n - 1]
             cur_ev_efa = evs[factor_n - 1]
             print(f"{factor_n:<10}{cur_ev_par:<25.2f}{cur_ev_efa:<15.2f}")
-
-        print("\nSuggested number of factors:", suggested_factors)
-
-    # Find the threshold
-    for factor_n in range(1, facs_to_display + 1):
-        cur_ev_par = par_per.iloc[factor_n - 1]
-        cur_ev_efa = evs[factor_n - 1]
-
-        if cur_ev_par * standard >= cur_ev_efa:
-            suggested_factors = factor_n - 1 if factor_n > 1 else 1
-            break
-
-        if print_table:
-            print(f"{factor_n}\t{cur_ev_par:.2f}\t\t{cur_ev_efa:.2f}")
-
-    if print_table:
-        print(f"\nSuggested number of factors: {suggested_factors}\n")
+        
+        print(f"\nSuggested number of factors: {suggested_factors}")
 
     if return_rec_n:
         return suggested_factors
