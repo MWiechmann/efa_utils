@@ -353,7 +353,6 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     # List of variables used for current factor solution
     curr_vars = copy.deepcopy(vars_analsis)
 
-    # Loop until final solution is found
     i = 1
     while not final_solution:
         # Fit analyzer
@@ -408,7 +407,6 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         if not any(mask_low_comms):
             print(f"All communalities above {comm_thresh}\n")
         else:
-            # save bad items and remove them
             bad_items = comms[mask_low_comms].index.tolist()
             print(
                 f"Detected {len(bad_items)} items with low communality. Excluding them for next analysis.\n")
@@ -428,7 +426,6 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         if not any(mask_low_main):
             print(f"All main loadings above {main_thresh}\n")
         else:
-            # save bad items and remove them
             bad_items = max_loadings[mask_low_main].index
             print(
                 f"Detected {len(bad_items)} items with low main loading. Excluding them for next analysis.\n")
@@ -441,10 +438,9 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             i += 1
             continue
 
-        # check 3: Check for high cross loadings
-        print("Checking high cross loadings")
+        # Check 3: Check for high cross loadings
+        print("Checking for high cross loadings")
 
-        # create df that stores main_load, largest crossload and difference between the two
         crossloads_df = pd.DataFrame(index=curr_vars)
 
         crossloads_df["main_load"] = abs(loadings).max(axis=1)
@@ -468,7 +464,6 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                     f" and differences between main loading and crossloadings above {load_diff_thresh}.\n"
                 )
         else:
-            # save bad items and remove them
             bad_items = crossloads_df[mask_high_cross].index
             print(
                 f"Detected {len(bad_items)} items with high cross loading. Excluding them for next analysis.\n")
@@ -514,7 +509,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
 
     return (analyzer, curr_vars)
 
-# Function to print main loadings for each factor
+# Function to print main loadings for each factor/component
 def print_sorted_loadings(efa, item_labels, load_thresh=0.4, descr=None):
     """Print strongly loading variables for each factor. Will only print loadings above load_thresh for each factor.
 
