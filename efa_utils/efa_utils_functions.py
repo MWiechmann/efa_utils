@@ -16,6 +16,11 @@ try:
 except ImportError:
     pass
 
+try:
+    from sklearn.decomposition import PCA
+except ImportError:
+    pass
+
 # Function to reduce multicollinearity
 def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_details=True, deletion_method='pairwise', keep_vars=None):
     """
@@ -34,7 +39,7 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
     det_thre (float): Threshold for the determinant of the correlation matrix. Default is 0.00001.
                       If the determinant is below this threshold, the function will drop the variable
                       with the highest VIF until the determinant is above the threshold.
-    vars_descr (list): Dataframe or dictionary containing the variable descriptions (variable names as index/key).
+    vars_descr (list or dict): Dataframe or dictionary containing the variable descriptions (variable names as index/key).
                        If provided, the function will also print the variable descriptions additionally to the variable names.
     print_details (bool): If True, the function will print a detailed report of the process. Default is True.
     deletion_method (str): Method for handling missing data. Options are 'listwise' or 'pairwise' (default).
@@ -301,13 +306,13 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                   print_details=False, print_par_plot=False, print_par_table=False,
                   par_k=100, par_n_facs=15, iterative=True, auto_stop_par=False,
                   items_descr=None, do_det_check=True,
-                  do_kmo_check=True, kmo_dropna_thre=0):
-    """Run EFA with iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process.
+                  do_kmo_check=True, kmo_dropna_thre=0, use_pca=False):
+    """Run EFA or PCA with iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process.
 
     Parameters:
     data (pandas dataframe): Dataframe with data to be analyzed
     vars_analsis (list): List of variables to be analyzed
-    n_facs (int): Number of factors to extract
+    n_facs (int): Number of factors/components to extract
     rotation_method (str): Rotation method to be used. Default is "Oblimin". Has to be one of the methods supported by the factor_analyzer package.
     comm_thresh (float): Threshold for communalities. Variables with communality below this threshold will be dropped from analysis.
     main_thresh (float): Threshold for main loadings. Variables with main loadings below this threshold will be dropped from analysis.
@@ -324,16 +329,22 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     do_det_check (bool): If True, check the determinant of the correlation matrix after the final solution is found.
     do_kmo_check (bool): If True, check the Kaiser-Meyer-Olkin measure of sampling adequacy after the final solution is found.
     kmo_dropna_thre (int): Threshold for the number of missing values. If the number of missing values is above this threshold, the function will drop the variable. If the SVD does not converge, try increasing this threshold.
+    use_pca (bool): If True, use PCA instead of EFA. Default is False.
 
     Returns:
-    (efa, curr_vars): Tuple with EFA object and list of variables that were analyzed in the last step of the iterative process.
+    (analyzer, curr_vars): Tuple with analyzer object (EFA or PCA) and list of variables that were analyzed in the last step of the iterative process.
     """
     # Convert vars_analsis to a list if it's an Index object
     if isinstance(vars_analsis, pd.Index):
         vars_analsis = vars_analsis.tolist()
     
-    # Initialize FactorAnalyzer object
-    efa = fa.FactorAnalyzer(n_factors=n_facs, rotation=rotation_method)
+    # Initialize analyzer object (EFA or PCA)
+    if use_pca:
+        if 'PCA' not in globals():
+            raise ImportError("PCA from sklearn.decomposition is required for PCA analysis. Please install scikit-learn.")
+        analyzer = PCA(n_components=n_facs)
+    else:
+        analyzer = fa.FactorAnalyzer(n_factors=n_facs, rotation=rotation_method)
 
     # Marker to indicate whether the final solution was found
     final_solution = False
@@ -344,45 +355,55 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     # Loop until final solution is found
     i = 1
     while not final_solution:
-        # Fit EFA
+        # Fit analyzer
         if len(curr_vars) < 2:
             print(f"Not enough variables left (only {len(curr_vars)}). Stopping iteration.")
             return None, curr_vars
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            efa.fit(data[curr_vars])
+            if use_pca:
+                # Standardize data for PCA
+                data_std = (data[curr_vars] - data[curr_vars].mean()) / data[curr_vars].std()
+                analyzer.fit(data_std)
+                # Calculate loadings from components
+                loadings = pd.DataFrame(
+                    analyzer.components_.T * np.sqrt(analyzer.explained_variance_),
+                    index=curr_vars
+                )
+                # Calculate communalities
+                comms = pd.Series(np.sum(loadings**2, axis=1), index=curr_vars)
+            else:
+                analyzer.fit(data[curr_vars])
+                loadings = pd.DataFrame(analyzer.loadings_, index=curr_vars)
+                comms = pd.Series(analyzer.get_communalities(), index=curr_vars)
+
             if len(w) > 0:
-                print("Warning during EFA fitting:")
+                print("Warning during fitting:")
                 print(w[-1].message)
                 print("This may indicate high multicollinearity in the data.")
 
         print(f"Fitted solution #{i}\n")
 
         # print screeplot and/or table and/or check for auto-stopping for parallel analysis
-        # (if respective option was chosen)
         if print_par_plot or print_par_table or auto_stop_par:
             suggested_n_facs = parallel_analysis(
                 data, curr_vars, k=par_k, facs_to_display=par_n_facs,
-                print_graph=print_par_plot, print_table=print_par_table)
+                print_graph=print_par_plot, print_table=print_par_table,
+                extraction="components" if use_pca else "minres")
 
             if (suggested_n_facs < n_facs) and auto_stop_par:
                 print("\nAuto-Stop based on parallel analysis: "
-                      f"Parallel analysis suggests {suggested_n_facs} factors. "
-                      f"That is less than the currently requested number of factors ({n_facs})."
-                      "Iterative Efa stopped. No EFA object or list of variables will be returned.")
+                      f"Parallel analysis suggests {suggested_n_facs} {'components' if use_pca else 'factors'}. "
+                      f"That is less than the currently requested number ({n_facs})."
+                      "Analysis stopped. No analyzer object or list of variables will be returned.")
                 return
 
         # Check 1: Check communalities
         print("\nChecking for low communalities")
-        comms = pd.DataFrame(
-            efa.get_communalities(),
-            index=data[curr_vars].columns,
-            columns=['Communality']
-        )
-        mask_low_comms = comms["Communality"] < comm_thresh
+        mask_low_comms = comms < comm_thresh
 
-        if comms[mask_low_comms].empty:
+        if not any(mask_low_comms):
             print(f"All communalities above {comm_thresh}\n")
         else:
             # save bad items and remove them
@@ -391,7 +412,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                 f"Detected {len(bad_items)} items with low communality. Excluding them for next analysis.\n")
             for item in bad_items:
                 if print_details:
-                    print(f"\nRemoved item {item}\nCommunality: {comms.loc[item, 'Communality']:.4f}\n")
+                    print(f"\nRemoved item {item}\nCommunality: {comms[item]:.4f}\n")
                     if items_descr is not None:
                         print(f"Item description: {items_descr[item]}\n")
             curr_vars = [var for var in curr_vars if var not in bad_items]
@@ -400,10 +421,9 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
 
         # Check 2: Check for low main loading
         print("Checking for low main loading")
-        loadings = pd.DataFrame(efa.loadings_, index=data[curr_vars].columns)
         max_loadings = abs(loadings).max(axis=1)
         mask_low_main = max_loadings < main_thresh
-        if max_loadings[mask_low_main].empty:
+        if not any(mask_low_main):
             print(f"All main loadings above {main_thresh}\n")
         else:
             # save bad items and remove them
@@ -433,7 +453,7 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         mask_high_cross = (crossloads_df["cross_load"] > cross_thres) | (
             crossloads_df["diff"] < load_diff_thresh)
 
-        if crossloads_df[mask_high_cross].empty:
+        if not any(mask_high_cross):
             print(
                 f"All cross-loadings below {cross_thres}"
                 f" and differences between main loading and crossloadings above {load_diff_thresh}.\n"
@@ -475,14 +495,15 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             except Exception as e:
                 print(f"Error during KMO check: {e}")
 
-        # Check for Heywood cases
-        comms = efa.get_communalities()
-        if comms.max() >= 1.0:
-            print(f"Heywood case found for item {curr_vars[comms.argmax()]}. Communality: {comms.max()}")
-        else:
-            print("No Heywood case found.")
+        # Check for Heywood cases (only for EFA)
+        if not use_pca:
+            comms = analyzer.get_communalities()
+            if comms.max() >= 1.0:
+                print(f"Heywood case found for item {curr_vars[comms.argmax()]}. Communality: {comms.max()}")
+            else:
+                print("No Heywood case found.")
 
-    return (efa, curr_vars)
+    return (analyzer, curr_vars)
 
 # Function to print main loadings for each factor
 def print_sorted_loadings(efa, item_labels, load_thresh=0.4, descr=None):

@@ -25,6 +25,7 @@ pip install efa_utils[optional]
 - statsmodels (for reduce_multicoll and kmo_check)
 - matplotlib (optional, for parallel_analysis and iterative_efa with parallel analysis option)
 - reliabilipy (optional, for factor_int_reliability)
+- scikit-learn (optional, for PCA functionality in iterative_efa)
 
 ## Functions
 
@@ -42,7 +43,11 @@ Performs parallel analysis to determine the number of factors to retain. Require
 
 ### efa_utils.iterative_efa
 
-Performs iterative exploratory factor analysis. Runs EFA with an iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process. If parallel analysis option is used, it requires matplotlib (optional dependency).
+Performs iterative exploratory factor analysis or principal component analysis (PCA). Runs EFA/PCA with an iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process. 
+
+For EFA (default), uses factor_analyzer package. For PCA (when use_pca=True), uses scikit-learn's PCA implementation. PCA functionality requires scikit-learn (optional dependency).
+
+If parallel analysis option is used, it requires matplotlib (optional dependency).
 
 ### efa_utils.print_sorted_loadings
 
@@ -58,7 +63,7 @@ Calculates and prints the internal reliability for each factor. Takes a pandas d
 
 ## Usage
 
-Here's a basic example of how to use efa_utils:
+Here's a basic example of how to use efa_utils with both EFA and PCA:
 
 ```python
 import pandas as pd
@@ -73,15 +78,36 @@ reduced_vars = reduce_multicoll(data, data.columns)
 # Check KMO
 kmo_check(data, reduced_vars)
 
+# For EFA:
 # Perform parallel analysis
 n_factors = parallel_analysis(data, reduced_vars)
 
 # Perform iterative EFA
 efa, final_vars = iterative_efa(data, reduced_vars, n_facs=n_factors)
 
-# Print results
+# Print EFA results
+print("EFA Results:")
 print(f"Final variables: {final_vars}")
 print(efa.loadings_)
+
+# For PCA:
+# Perform parallel analysis with components
+n_components = parallel_analysis(data, reduced_vars, extraction="components")
+
+# Perform iterative PCA
+pca, final_vars = iterative_efa(
+    data, reduced_vars, n_facs=n_components,
+    use_pca=True  # This enables PCA instead of EFA
+)
+
+# Print PCA results
+print("\nPCA Results:")
+print(f"Final variables: {final_vars}")
+print(f"Explained variance ratio: {pca.explained_variance_ratio_}")
+# Calculate loadings (standardized components)
+loadings = pca.components_.T * np.sqrt(pca.explained_variance_)
+print("Component loadings:")
+print(loadings)
 ```
 
 ## Contributing

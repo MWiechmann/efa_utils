@@ -70,6 +70,55 @@ def test_iterative_efa(sample_data):
     assert len(final_vars) >= 10  # We expect to retain most variables
     assert efa.n_factors == 3
 
+def test_iterative_efa_pca(sample_data):
+    try:
+        from sklearn.decomposition import PCA
+        vars_li = sample_data.columns.tolist()
+        pca, final_vars = iterative_efa(
+            sample_data, vars_li, n_facs=3, comm_thresh=0.3,
+            print_details=False, print_par_plot=False, print_par_table=False,
+            use_pca=True
+        )
+        assert pca is not None
+        assert len(final_vars) >= 10  # We expect to retain most variables
+        assert isinstance(pca, PCA)
+        assert pca.n_components == 3
+        
+        # Check explained variance ratio is reasonable
+        assert np.sum(pca.explained_variance_ratio_) > 0.5  # Should explain >50% of variance
+        
+        # Check loadings calculation
+        loadings = pca.components_.T * np.sqrt(pca.explained_variance_)
+        assert loadings.shape == (len(final_vars), 3)
+        
+        # Check communalities
+        comms = np.sum(loadings**2, axis=1)
+        assert all(comm >= 0.3 for comm in comms)  # All should be above comm_thresh
+        
+    except ImportError:
+        pytest.skip("scikit-learn is not installed, skipping PCA test")
+
+def test_iterative_efa_pca_no_sklearn(sample_data, monkeypatch):
+    # Temporarily remove sklearn.decomposition from globals
+    monkeypatch.delitem(globals(), 'PCA', raising=False)
+    
+    vars_li = sample_data.columns.tolist()
+    with pytest.raises(ImportError, match="PCA from sklearn.decomposition is required for PCA analysis"):
+        iterative_efa(
+            sample_data, vars_li, n_facs=3,
+            print_details=False, print_par_plot=False, print_par_table=False,
+            use_pca=True
+        )
+
+def test_parallel_analysis_pca(sample_data):
+    vars_li = sample_data.columns.tolist()
+    n_components = parallel_analysis(
+        sample_data, vars_li,
+        print_graph=False, print_table=False,
+        extraction="components"
+    )
+    assert 2 <= n_components <= 4  # We expect to detect 3 components, but allow some flexibility
+
 def test_print_sorted_loadings(sample_data):
     vars_li = sample_data.columns.tolist()
     efa, _ = iterative_efa(sample_data, vars_li, n_facs=3, comm_thresh=0.3, print_details=False, print_par_plot=False, print_par_table=False)
