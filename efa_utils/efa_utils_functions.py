@@ -258,10 +258,19 @@ def parallel_analysis(
     suggested_factors = m  # Default to maximum number of factors
 
     if print_table:
-        # Print table with values for random data and actual data
+        # Print table header
         print(
-            f"Factor eigenvalues for the {percentile}th percentile of {k} random matrices and for survey data for first {facs_to_display} factors:\n")
-        print(f"\033[1mFactor\tEV - random data {percentile}th perc.\tEV survey data\033[0m")
+            f"{'Factor':<10}{'EV - random data':<25}{'EV survey data':<15}"
+        )
+        print("-" * 50)
+
+        # Print eigenvalues for each factor
+        for factor_n in range(1, facs_to_display + 1):
+            cur_ev_par = par_per.iloc[factor_n - 1]
+            cur_ev_efa = evs[factor_n - 1]
+            print(f"{factor_n:<10}{cur_ev_par:<25.2f}{cur_ev_efa:<15.2f}")
+
+        print("\nSuggested number of factors:", suggested_factors)
 
     # Find the threshold
     for factor_n in range(1, facs_to_display + 1):
