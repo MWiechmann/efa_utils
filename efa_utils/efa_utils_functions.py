@@ -165,25 +165,8 @@ def parallel_analysis(
     df, vars_li, k=200, facs_to_display=15, print_graph=True,
     print_table=True, return_rec_n=True, extraction="minres",
     percentile=99, standard=1.1, missing='pairwise'):
-    """Function to perform parallel analysis on a dataset.
+    """Function to perform parallel analysis on a dataset."""
 
-    Parameters:
-    df (pandas dataframe): dataframe containing the variables to be analyzed
-    vars_li (list): list of variables to be analyzed
-    k (int): number of EFAs to fit over a random dataset for parallel analysis. Default is 200.
-    facs_to_display (int): number of factors to display in table and/or graph
-    print_graph (bool): whether to print a graph of the results. Requires matplotlib package. Default is True.
-    print_table (bool): whether to print a table of the results
-    return_rec_n (bool): whether to return the recommended number of factors
-    extraction (str): extraction method to use for the EFA/PCA. Default is "minres". Other options are "ml" (maximum likelihood), "principal" (principal factors), and "components" (principal components).
-    percentile (int): against which percentile to compare the eigenvalues. Default is 99.
-    standard (float): how much higher the eigenvalues should be compared to the random dataset. Default is 1.1 (10% higher).
-    missing (str): Method to handle missing data. 'pairwise' for pairwise deletion,
-                   'listwise' for listwise deletion. Default is 'pairwise'.
-
-    Returns:
-    suggested_factors: number of factors suggested by parallel analysis
-    """
     # Check for valid missing parameter
     if missing not in ['pairwise', 'listwise']:
         raise ValueError("missing must be either 'pairwise' or 'listwise'")
@@ -202,29 +185,34 @@ def parallel_analysis(
 
     m = len(vars_li)
 
-    # EFA with no rotation to get EVs
+    # Check for singular matrix
+    if np.linalg.matrix_rank(corr_matrix) < len(vars_li):
+        raise ValueError("Singular matrix: Check for redundant or constant variables.")
+
+    # Eigenvalues computation based on extraction method
     if extraction == "components":
-        efa = fa.FactorAnalyzer(rotation=None, n_factors=m)
-        efa.fit(corr_matrix)
-        evs = efa.get_eigenvalues()[0]
+        # Direct PCA eigenvalues
+        evs = np.linalg.eigvalsh(corr_matrix)[::-1]
     else:
-        efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
+        efa = FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
         efa.fit(corr_matrix)
         evs = efa.get_eigenvalues()[0]
 
-    # Prepare FactorAnalyzer object
+    # Prepare FactorAnalyzer object for random data
     if extraction == "components":
-        par_efa = fa.FactorAnalyzer(rotation=None, n_factors=m)
+        par_efa = FactorAnalyzer(rotation=None, n_factors=m)
     else:
-        par_efa = fa.FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
+        par_efa = FactorAnalyzer(rotation=None, method=extraction, n_factors=m)
 
-    # Create list to store the eigenvalues
+    # Create list to store the eigenvalues from random data
     ev_par_list = []
 
     # Run the fit 'k' times over a random matrix
     successful_runs = 0
     while successful_runs < k:
         random_data = np.random.normal(size=(n, m))
+        while np.linalg.matrix_rank(random_data) < m:
+            random_data = np.random.normal(size=(n, m))
         random_corr = np.corrcoef(random_data.T)
         try:
             par_efa.fit(random_corr)
@@ -236,21 +224,24 @@ def parallel_analysis(
 
     ev_par_df = pd.DataFrame(ev_par_list)
 
-    # get percentile for the evs
-    par_per = ev_par_df.quantile(percentile/100)
+    # Get percentile for the eigenvalues
+    par_per = ev_par_df.quantile(percentile / 100)
+
+    # Adjust facs_to_display to avoid index errors
+    facs_to_display = min(facs_to_display, m)
 
     if print_graph and 'plt' in globals():
         # Draw graph
         plt.figure(figsize=(10, 6))
 
         # Line for eigenvalue 1
-        plt.plot([1, facs_to_display+1], [1, 1], 'k--', alpha=0.3)
+        plt.plot([1, facs_to_display + 1], [1, 1], 'k--', alpha=0.3)
         # For the random data (parallel analysis)
-        plt.plot(range(1, len(par_per.iloc[:facs_to_display])+1),
+        plt.plot(range(1, len(par_per.iloc[:facs_to_display]) + 1),
                  par_per.iloc[:facs_to_display], 'b', label=f'EVs - random: {percentile}th percentile', alpha=0.4)
         # Markers and line for actual EFA eigenvalues
-        plt.scatter(range(1, len(evs[:facs_to_display])+1), evs[:facs_to_display])
-        plt.plot(range(1, len(evs[:facs_to_display])+1),
+        plt.scatter(range(1, len(evs[:facs_to_display]) + 1), evs[:facs_to_display])
+        plt.plot(range(1, len(evs[:facs_to_display]) + 1),
                  evs[:facs_to_display], label='EVs - survey data')
 
         plt.title('Parallel Analysis Scree Plots', {'fontsize': 20})
@@ -258,47 +249,34 @@ def parallel_analysis(
             plt.xlabel('Components', {'fontsize': 15})
         else:
             plt.xlabel('Factors', {'fontsize': 15})
-        plt.xticks(range(1, facs_to_display+1), range(1, facs_to_display+1))
+        plt.xticks(range(1, facs_to_display + 1), range(1, facs_to_display + 1))
         plt.ylabel('Eigenvalue', {'fontsize': 15})
         plt.legend()
         plt.show()
 
     # Determine threshold
-    # Also print out table with EVs if requested
-    last_factor_n = 0
-    last_per_par = 0
-    last_ev_efa = 0
-    found_threshold = False
     suggested_factors = m  # Default to maximum number of factors
 
     if print_table:
-        # Create simple table with values for random data and EVs for actual data
+        # Print table with values for random data and actual data
         print(
             f"Factor eigenvalues for the {percentile}th percentile of {k} random matrices and for survey data for first {facs_to_display} factors:\n")
         print(f"\033[1mFactor\tEV - random data {percentile}th perc.\tEV survey data\033[0m")
 
-    # Loop through EVs to find threshold
+    # Find the threshold
     for factor_n in range(1, facs_to_display + 1):
         cur_ev_par = par_per.iloc[factor_n - 1]
         cur_ev_efa = evs[factor_n - 1]
 
-        if not found_threshold and (cur_ev_par * standard >= cur_ev_efa):
-            found_threshold = True
+        if cur_ev_par * standard >= cur_ev_efa:
             suggested_factors = factor_n - 1 if factor_n > 1 else 1
+            break
 
-            if print_table and factor_n > 1:
-                print(
-                    f"\033[1m{factor_n - 1}\t{par_per.iloc[factor_n - 2]:.2f}\t\t\t\t{evs[factor_n - 2]:.2f}\033[0m")
-        elif print_table and factor_n > 1:
-            print(f"{factor_n - 1}\t{par_per.iloc[factor_n - 2]:.2f}\t\t\t\t{evs[factor_n - 2]:.2f}")
-
-        if factor_n == facs_to_display and print_table:
-            print(f"{factor_n}\t{cur_ev_par:.2f}\t\t\t\t{cur_ev_efa:.2f}")
+        if print_table:
+            print(f"{factor_n}\t{cur_ev_par:.2f}\t\t{cur_ev_efa:.2f}")
 
     if print_table:
-        print(
-            f"Suggested number of factors \n"
-            f"based on parallel analysis and standard of {standard}: {suggested_factors}")
+        print(f"\nSuggested number of factors: {suggested_factors}\n")
 
     if return_rec_n:
         return suggested_factors

@@ -106,7 +106,7 @@ def test_factor_int_reliability(sample_data):
     except ImportError:
         pytest.skip("reliabilipy is not installed, skipping this test")
 
-def test_kmo_check_warning_message():
+def test_kmo_check_warning_message(capsys):
     # Create a dataset with highly correlated variables to trigger the warning
     np.random.seed(0)
     n_samples = 100
@@ -118,19 +118,12 @@ def test_kmo_check_warning_message():
     data = pd.DataFrame({'A': A, 'B': B, 'C': C})
     vars_li = ['A', 'B', 'C']
 
-    # Capture the output
-    from io import StringIO
-    import sys
-    captured_output = StringIO()
-    sys.stdout = captured_output
-
     # Run kmo_check to trigger the informative message
     kmo_check(data, vars_li)
 
-    # Restore stdout
-    sys.stdout = sys.__stdout__
-
-    output = captured_output.getvalue()
+    # Capture the output
+    captured = capsys.readouterr()
+    output = captured.out
 
     # Check if the informative message is in the output
     assert "The analysis detected high correlations between variables." in output, \
