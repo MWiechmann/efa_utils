@@ -300,58 +300,59 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                   comm_thresh=0.2, main_thresh=0.4, cross_thres=0.3, load_diff_thresh=0.2,
                   print_details=False, print_par_plot=False, print_par_table=False,
                   par_k=100, par_n_facs=15, iterative=True, auto_stop_par=False,
-                  items_descr=None, do_det_check=True,
-                  do_kmo_check=True, kmo_dropna_thre=0):
-    """Run EFA with iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process.
+                  items_descr=None, do_det_check=True, do_kmo_check=True, kmo_dropna_thre=0,
+                  extraction="minres"):
+    """Run EFA with iterative process, including an option for PCA when extraction='components'.
 
     Parameters:
     data (pandas dataframe): Dataframe with data to be analyzed
     vars_analsis (list): List of variables to be analyzed
-    n_facs (int): Number of factors to extract
-    rotation_method (str): Rotation method to be used. Default is "Oblimin". Has to be one of the methods supported by the factor_analyzer package.
-    comm_thresh (float): Threshold for communalities. Variables with communality below this threshold will be dropped from analysis.
-    main_thresh (float): Threshold for main loadings. Variables with main loadings below this threshold will be dropped from analysis.
-    cross_thres (float): Threshold for cross loadings. Variables with cross loadings above this threshold will be dropped from analysis.
-    load_diff_thresh (float): Threshold for difference between main and cross loadings. Variables with difference between main and cross loadings below this threshold will be dropped from analysis.
-    print_details (bool): If True, print details for each step of the iterative process.
-    print_par_plot (bool): If True, print parallel analysis scree plot for each step of the iterative process.
-    print_par_table (bool): If True, print table with eigenvalues from the parallel each step of the iterative process.
-    par_k (int): Number of EFAs over a random matrix for parallel analysis.
+    n_facs (int): Number of factors or components to extract
+    rotation_method (str): Rotation method to be used. Default is "Oblimin".
+    comm_thresh (float): Threshold for communalities. Variables with communality below this threshold will be dropped.
+    main_thresh (float): Threshold for main loadings. Variables with main loadings below this threshold will be dropped.
+    cross_thres (float): Threshold for cross loadings. Variables with cross loadings above this threshold will be dropped.
+    load_diff_thresh (float): Threshold for difference between main and cross loadings.
+    print_details (bool): If True, print details for each step.
+    print_par_plot (bool): If True, print parallel analysis scree plot for each step.
+    print_par_table (bool): If True, print table with eigenvalues from parallel analysis.
+    par_k (int): Number of simulations for parallel analysis.
     par_n_facs (int): Number of factors to display for parallel analysis.
-    iterative (bool): NOT IMPLEMENTED YET. If True, run iterative process. If False, run EFA with all variables.
-    auto_stop_par (bool): If True, stop the iterative process when the suggested number of factors from parallel analysis is lower than the requested number of factors. In that case, no EFA object or list of variables is returned.
-    items_descr (pandas series): Series with item descriptions. If provided, the function will print the item description for each variable that is dropped from the analysis.
-    do_det_check (bool): If True, check the determinant of the correlation matrix after the final solution is found.
-    do_kmo_check (bool): If True, check the Kaiser-Meyer-Olkin measure of sampling adequacy after the final solution is found.
-    kmo_dropna_thre (int): Threshold for the number of missing values. If the number of missing values is above this threshold, the function will drop the variable. If the SVD does not converge, try increasing this threshold.
+    iterative (bool): If True, run iterative process.
+    auto_stop_par (bool): If True, stop if parallel analysis suggests fewer factors.
+    items_descr (pandas series): Series with item descriptions.
+    do_det_check (bool): If True, check determinant of correlation matrix.
+    do_kmo_check (bool): If True, perform KMO test.
+    kmo_dropna_thre (int): Threshold for dropping variables with missing values.
+    extraction (str): Extraction method. Default is "minres". Use "components" for PCA.
 
     Returns:
-    (efa, curr_vars): Tuple with EFA object and list of variables that were analyzed in the last step of the iterative process.
+    (efa, curr_vars): Tuple with EFA or PCA object and list of variables analyzed.
     """
     # Convert vars_analsis to a list if it's an Index object
     if isinstance(vars_analsis, pd.Index):
         vars_analsis = vars_analsis.tolist()
     
-    # Initialize FactorAnalyzer object
-    efa = fa.FactorAnalyzer(n_factors=n_facs, rotation=rotation_method)
-
     # Marker to indicate whether the final solution was found
     final_solution = False
 
     # List of variables used for current factor solution
     curr_vars = copy.deepcopy(vars_analsis)
 
-    # Loop until final solution is found
     i = 1
     while not final_solution:
-        # Fit EFA
         if len(curr_vars) < 2:
             print(f"Not enough variables left (only {len(curr_vars)}). Stopping iteration.")
             return None, curr_vars
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            efa.fit(data[curr_vars])
+            if extraction == 'components':
+                efa = fa.PCA(n_components=n_facs)
+                efa.fit(data[curr_vars])
+            else:
+                efa = fa.FactorAnalyzer(n_factors=n_facs, rotation=rotation_method, method=extraction)
+                efa.fit(data[curr_vars])
             if len(w) > 0:
                 print("Warning during EFA fitting:")
                 print(w[-1].message)
@@ -359,33 +360,30 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
 
         print(f"Fitted solution #{i}\n")
 
-        # print screeplot and/or table and/or check for auto-stopping for parallel analysis
-        # (if respective option was chosen)
         if print_par_plot or print_par_table or auto_stop_par:
             suggested_n_facs = parallel_analysis(
                 data, curr_vars, k=par_k, facs_to_display=par_n_facs,
-                print_graph=print_par_plot, print_table=print_par_table)
+                print_graph=print_par_plot, print_table=print_par_table, extraction=extraction)
 
             if (suggested_n_facs < n_facs) and auto_stop_par:
                 print("\nAuto-Stop based on parallel analysis: "
-                      f"Parallel analysis suggests {suggested_n_facs} factors. "
-                      f"That is less than the currently requested number of factors ({n_facs})."
-                      "Iterative Efa stopped. No EFA object or list of variables will be returned.")
+                      f"Parallel analysis suggests {suggested_n_facs} factors/components. "
+                      f"That is less than the currently requested number ({n_facs})."
+                      " Iterative EFA stopped. No object or list of variables will be returned.")
                 return
 
         # Check 1: Check communalities
         print("\nChecking for low communalities")
-        comms = pd.DataFrame(
-            efa.get_communalities(),
-            index=data[curr_vars].columns,
-            columns=['Communality']
-        )
+        if extraction == 'components':
+            communalities = pd.Series(np.sum(efa.loadings_ ** 2, axis=1), index=data[curr_vars].columns)
+        else:
+            communalities = pd.Series(efa.get_communalities(), index=data[curr_vars].columns)
+        comms = pd.DataFrame(communalities, columns=['Communality'])
         mask_low_comms = comms["Communality"] < comm_thresh
 
         if comms[mask_low_comms].empty:
             print(f"All communalities above {comm_thresh}\n")
         else:
-            # save bad items and remove them
             bad_items = comms[mask_low_comms].index.tolist()
             print(
                 f"Detected {len(bad_items)} items with low communality. Excluding them for next analysis.\n")
@@ -406,7 +404,6 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         if max_loadings[mask_low_main].empty:
             print(f"All main loadings above {main_thresh}\n")
         else:
-            # save bad items and remove them
             bad_items = max_loadings[mask_low_main].index
             print(
                 f"Detected {len(bad_items)} items with low main loading. Excluding them for next analysis.\n")
@@ -419,10 +416,9 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             i += 1
             continue
 
-        # check 3: Check for high cross loadings
-        print("Checking high cross loadings")
+        # Check 3: Check for high cross loadings
+        print("Checking for high cross loadings")
 
-        # create df that stores main_load, largest crossload and difference between the two
         crossloads_df = pd.DataFrame(index=curr_vars)
 
         crossloads_df["main_load"] = abs(loadings).max(axis=1)
@@ -439,7 +435,6 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                 f" and differences between main loading and crossloadings above {load_diff_thresh}.\n"
             )
         else:
-            # save bad items and remove them
             bad_items = crossloads_df[mask_high_cross].index
             print(
                 f"Detected {len(bad_items)} items with high cross loading. Excluding them for next analysis.\n")
@@ -476,15 +471,18 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                 print(f"Error during KMO check: {e}")
 
         # Check for Heywood cases
-        comms = efa.get_communalities()
-        if comms.max() >= 1.0:
-            print(f"Heywood case found for item {curr_vars[comms.argmax()]}. Communality: {comms.max()}")
+        if extraction == 'components':
+            communalities = np.sum(efa.loadings_ ** 2, axis=1)
+        else:
+            communalities = efa.get_communalities()
+        if communalities.max() >= 1.0:
+            print(f"Heywood case found for item {curr_vars[communalities.argmax()]}. Communality: {communalities.max()}")
         else:
             print("No Heywood case found.")
 
     return (efa, curr_vars)
 
-# Function to print main loadings for each factor
+# Function to print main loadings for each factor/component
 def print_sorted_loadings(efa, item_labels, load_thresh=0.4, descr=None):
     """Print strongly loading variables for each factor. Will only print loadings above load_thresh for each factor.
 
