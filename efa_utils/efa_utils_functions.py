@@ -97,6 +97,8 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
         # Remove variable with highest VIF
         curr_vars.remove(max_vif_var)
         print(f"Removed variable '{max_vif_var}' with VIF={max_vif}")
+        if vars_descr is not None and max_vif_var in vars_descr:
+            print(f"Variable description: {vars_descr[max_vif_var]}")
 
         # Recalculate determinant
         if deletion_method == 'listwise':

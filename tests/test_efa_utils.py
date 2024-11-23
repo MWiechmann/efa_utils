@@ -51,6 +51,44 @@ def test_reduce_multicoll(sample_data):
     except Exception as e:
         pytest.fail(f"reduce_multicoll raised {type(e).__name__} unexpectedly: {e}")
 
+def test_reduce_multicoll_with_descriptions(capsys):
+    # Create sample data with known multicollinearity
+    np.random.seed(42)
+    n_samples = 100
+    x = np.random.normal(0, 1, n_samples)
+    # Create almost perfectly correlated variables
+    y = x * 0.99 + np.random.normal(0, 0.01, n_samples)  # Increased correlation
+    z = x * 0.98 + np.random.normal(0, 0.02, n_samples)  # Increased correlation
+    
+    data = pd.DataFrame({
+        'x': x,
+        'y': y,
+        'z': z
+    })
+    
+    vars_li = ['x', 'y', 'z']
+    vars_descr = {
+        'x': 'First variable',
+        'y': 'Second variable',
+        'z': 'Third variable'
+    }
+    
+    # Run reduce_multicoll with descriptions
+    reduced_vars = reduce_multicoll(data, vars_li, vars_descr=vars_descr)
+    
+    # Capture the output
+    captured = capsys.readouterr()
+    output = captured.out
+    
+    # Check if variable descriptions were printed
+    for var, desc in vars_descr.items():
+        if var not in reduced_vars:  # If variable was removed
+            assert desc in output, f"Description for {var} ({desc}) not found in output"
+    
+    # Basic checks
+    assert len(reduced_vars) < len(vars_li), "Should have removed at least one variable"
+    assert all(var in vars_li for var in reduced_vars), "All remaining variables should be from original list"
+
 def test_kmo_check(sample_data):
     vars_li = sample_data.columns.tolist()
     kmo = kmo_check(sample_data, vars_li, return_kmos=True)
