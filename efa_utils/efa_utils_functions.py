@@ -98,7 +98,7 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
         curr_vars.remove(max_vif_var)
         print(f"Removed variable '{max_vif_var}' with VIF={max_vif}")
         if vars_descr is not None and max_vif_var in vars_descr:
-            print(f"Variable description: {vars_descr[max_vif_var]}")
+            print(f"Variable description: {vars_descr[max_vif_var]}\n")
 
         # Recalculate determinant
         if deletion_method == 'listwise':
@@ -309,7 +309,8 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
                   print_details=False, print_par_plot=False, print_par_table=False,
                   par_k=100, par_n_facs=15, iterative=True, auto_stop_par=False,
                   items_descr=None, do_det_check=True,
-                  do_kmo_check=True, kmo_dropna_thre=0, use_pca=False):
+                  do_kmo_check=True, kmo_dropna_thre=0, use_pca=False,
+                  never_exclude=None, par_percentile=99, par_standard=1.1):
     """Run EFA or PCA with iterative process, eliminating variables with low communality, low main loadings or high cross loadings in a stepwise process.
 
     Parameters:
@@ -333,6 +334,9 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
     do_kmo_check (bool): If True, check the Kaiser-Meyer-Olkin measure of sampling adequacy after the final solution is found.
     kmo_dropna_thre (int): Threshold for the number of missing values. If the number of missing values is above this threshold, the function will drop the variable. If the SVD does not converge, try increasing this threshold.
     use_pca (bool): If True, use PCA instead of EFA. Default is False.
+    never_exclude (list): List of variables that should never be excluded from the analysis. Default is None.
+    par_percentile (int): Percentile to use for random data in parallel analysis. Default is 99.
+    par_standard (float): Multiplier for random data threshold in parallel analysis. Default is 1.1.
 
     Returns:
     (analyzer, curr_vars): Tuple with analyzer object (EFA or PCA) and list of variables that were analyzed in the last step of the iterative process.
@@ -348,6 +352,10 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         analyzer = PCA(n_components=n_facs)
     else:
         analyzer = fa.FactorAnalyzer(n_factors=n_facs, rotation=rotation_method)
+
+    # Initialize never_exclude list if None
+    if never_exclude is None:
+        never_exclude = []
 
     # Marker to indicate whether the final solution was found
     final_solution = False
@@ -393,7 +401,8 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
             suggested_n_facs = parallel_analysis(
                 data, curr_vars, k=par_k, facs_to_display=par_n_facs,
                 print_graph=print_par_plot, print_table=print_par_table,
-                extraction="components" if use_pca else "minres")
+                extraction="components" if use_pca else "minres",
+                percentile=par_percentile, standard=par_standard)
 
             if (suggested_n_facs < n_facs) and auto_stop_par:
                 print("\nAuto-Stop based on parallel analysis: "
@@ -405,6 +414,8 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         # Check 1: Check communalities
         print("\nChecking for low communalities")
         mask_low_comms = comms < comm_thresh
+        # Exclude never_exclude variables from mask
+        mask_low_comms[never_exclude] = False
 
         if not any(mask_low_comms):
             print(f"All communalities above {comm_thresh}\n")
@@ -425,6 +436,9 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         print("Checking for low main loading")
         max_loadings = abs(loadings).max(axis=1)
         mask_low_main = max_loadings < main_thresh
+        # Exclude never_exclude variables from mask
+        mask_low_main[never_exclude] = False
+
         if not any(mask_low_main):
             print(f"All main loadings above {main_thresh}\n")
         else:
@@ -456,6 +470,9 @@ def iterative_efa(data, vars_analsis, n_facs=4, rotation_method="Oblimin",
         else:
             mask_high_cross = (crossloads_df["cross_load"] > cross_thres) | (
                 crossloads_df["diff"] < load_diff_thresh)
+        
+        # Exclude never_exclude variables from mask
+        mask_high_cross[never_exclude] = False
 
         if not any(mask_high_cross):
             if use_pca:

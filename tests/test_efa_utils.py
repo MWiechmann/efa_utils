@@ -18,22 +18,22 @@ def sample_data():
     n_factors = 3
     n_variables = 15  # 5 variables per factor
 
-    # Create factor loadings with very clear structure
+    # Create factor loadings with more varied structure
     loadings = np.zeros((n_variables, n_factors))
     for i in range(n_factors):
-        # Strong main loadings
-        loadings[i*5:(i+1)*5, i] = np.random.uniform(0.8, 0.9, 5)
+        # Main loadings with more variation
+        loadings[i*5:(i+1)*5, i] = np.random.uniform(0.6, 0.9, 5)  # Some weaker main loadings
         
-        # Add minimal cross-loadings
+        # Add more substantial cross-loadings
         for j in range(n_factors):
             if i != j:
-                loadings[i*5:(i+1)*5, j] = np.random.uniform(0.0, 0.1, 5)
+                loadings[i*5:(i+1)*5, j] = np.random.uniform(0.1, 0.3, 5)  # Larger cross-loadings
 
     # Generate uncorrelated factor scores
     factor_scores = np.random.normal(0, 1, (n_samples, n_factors))
 
-    # Generate observed variables with minimal noise
-    observed = np.dot(factor_scores, loadings.T) + np.random.normal(0, 0.1, (n_samples, n_variables))
+    # Generate observed variables with more noise
+    observed = np.dot(factor_scores, loadings.T) + np.random.normal(0, 0.2, (n_samples, n_variables))  # More noise
 
     # Convert to DataFrame
     df = pd.DataFrame(observed, columns=[f'var_{i}' for i in range(n_variables)])
@@ -57,8 +57,8 @@ def test_reduce_multicoll_with_descriptions(capsys):
     n_samples = 100
     x = np.random.normal(0, 1, n_samples)
     # Create almost perfectly correlated variables
-    y = x * 0.99 + np.random.normal(0, 0.01, n_samples)  # Increased correlation
-    z = x * 0.98 + np.random.normal(0, 0.02, n_samples)  # Increased correlation
+    y = x * 0.99 + np.random.normal(0, 0.01, n_samples)
+    z = x * 0.98 + np.random.normal(0, 0.02, n_samples)
     
     data = pd.DataFrame({
         'x': x,
@@ -107,6 +107,80 @@ def test_iterative_efa(sample_data):
     assert efa is not None
     assert len(final_vars) >= 10  # We expect to retain most variables
     assert efa.n_factors == 3
+
+def test_iterative_efa_never_exclude(sample_data):
+    vars_li = sample_data.columns.tolist()
+    never_exclude = ['var_0', 'var_5', 'var_10']  # One variable from each factor
+    
+    # Set very strict thresholds that will definitely exclude some variables
+    efa, final_vars = iterative_efa(
+        sample_data, vars_li, n_facs=3,
+        comm_thresh=0.85,  # Very high communality threshold
+        main_thresh=0.85,  # Very high main loading threshold
+        cross_thres=0.1,   # Very low cross-loading threshold
+        load_diff_thresh=0.8,  # Very high difference threshold
+        print_details=True,  # Enable for debugging
+        print_par_plot=False,
+        print_par_table=False,
+        never_exclude=never_exclude
+    )
+    
+    assert efa is not None, "EFA should not be None"
+    assert final_vars is not None, "final_vars should not be None"
+    
+    # Check that never_exclude variables are in final_vars
+    for var in never_exclude:
+        assert var in final_vars, f"Variable {var} was excluded despite being in never_exclude list"
+    
+    # Verify that some variables were actually excluded (to ensure the thresholds had an effect)
+    assert len(final_vars) < len(vars_li), "Some variables should have been excluded"
+
+def test_iterative_efa_parallel_analysis_params(sample_data):
+    vars_li = sample_data.columns.tolist()
+    
+    # Test with more lenient parallel analysis parameters
+    efa1, final_vars1 = iterative_efa(
+        sample_data, vars_li, n_facs=3,
+        print_details=False,
+        print_par_plot=False,
+        print_par_table=False,
+        par_percentile=95,  # More lenient percentile
+        par_standard=1.0    # More lenient standard
+    )
+    
+    # Test with stricter parallel analysis parameters
+    efa2, final_vars2 = iterative_efa(
+        sample_data, vars_li, n_facs=3,
+        print_details=False,
+        print_par_plot=False,
+        print_par_table=False,
+        par_percentile=99,  # Stricter percentile
+        par_standard=1.2    # Stricter standard
+    )
+    
+    # The stricter parameters should result in fewer or equal number of factors
+    # when auto_stop_par is True
+    result3 = iterative_efa(
+        sample_data, vars_li, n_facs=3,
+        print_details=False,
+        print_par_plot=False,
+        print_par_table=False,
+        par_percentile=99,
+        par_standard=1.2,
+        auto_stop_par=True
+    )
+    
+    # With auto_stop_par=True, the function should return None when suggested factors < n_facs
+    assert result3 is None, "With strict parameters and auto_stop_par=True, function should return None"
+    
+    # The non-auto-stop analyses should complete successfully
+    assert efa1 is not None, "First analysis should complete successfully"
+    assert efa2 is not None, "Second analysis should complete successfully"
+    assert final_vars1 is not None, "First analysis should return variables"
+    assert final_vars2 is not None, "Second analysis should return variables"
+    
+    # Stricter parameters should result in fewer or equal variables
+    assert len(final_vars2) <= len(final_vars1), "Stricter parameters should result in fewer or equal variables"
 
 def test_iterative_efa_pca(sample_data):
     try:
