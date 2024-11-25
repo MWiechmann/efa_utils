@@ -55,31 +55,35 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
     reduced_vars = copy.deepcopy(vars_li)
     if keep_vars is None:
         keep_vars = []
-    print("Beginning check for multicollinearity")
 
     curr_vars = reduced_vars.copy()
 
     if deletion_method == 'listwise':
         vars_corr = df[reduced_vars].corr()
         count_missing = df[vars_li].isna().any(axis=1).sum()
-        if count_missing > 0:
+        if print_details and count_missing > 0:
             print(f"This requires dropping missing values. The procedure will ignore {count_missing} cases with missing values")
     else:  # pairwise
         vars_corr = df[reduced_vars].corr(method='pearson', min_periods=1)
-        print("Using pairwise deletion for handling missing data")
+        if print_details:
+            print("Using pairwise deletion for handling missing data")
 
     det = np.linalg.det(vars_corr)
-    print(f"\nDeterminant of initial correlation matrix: {det}\n")
+    if print_details:
+        print(f"\nDeterminant of initial correlation matrix: {det}\n")
 
     if det > det_thre:
-        print(f"Determinant is > {det_thre}. No issues with multicollinearity detected.")
+        if print_details:
+            print(f"Determinant is > {det_thre}. No issues with multicollinearity detected.")
         return reduced_vars
 
-    print("Starting to remove redundant variables by assessing multicollinearity with VIF...\n")
+    if print_details:
+        print("Starting to remove redundant variables by assessing multicollinearity with VIF...\n")
 
     while det <= det_thre:
         if len(curr_vars) < 2:
-            print(f"Not enough variables left (only {len(curr_vars)}). Stopping iteration.")
+            if print_details:
+                print(f"Not enough variables left (only {len(curr_vars)}). Stopping iteration.")
             return None, curr_vars
 
         # Calculate VIF for current variables
@@ -96,9 +100,10 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
 
         # Remove variable with highest VIF
         curr_vars.remove(max_vif_var)
-        print(f"Removed variable '{max_vif_var}' with VIF={max_vif}")
-        if vars_descr is not None and max_vif_var in vars_descr:
-            print(f"Variable description: {vars_descr[max_vif_var]}\n")
+        if print_details:
+            print(f"Removed variable '{max_vif_var}' with VIF={max_vif}")
+            if vars_descr is not None and max_vif_var in vars_descr:
+                print(f"Variable description: {vars_descr[max_vif_var]}\n")
 
         # Recalculate determinant
         if deletion_method == 'listwise':
@@ -107,7 +112,8 @@ def reduce_multicoll(df, vars_li, det_thre=0.00001, vars_descr=None, print_detai
             vars_corr = df[curr_vars].corr(method='pearson', min_periods=1)
 
         det = np.linalg.det(vars_corr)
-        print(f"Determinant after removing '{max_vif_var}': {det}\n")
+        if print_details:
+            print(f"Determinant after removing '{max_vif_var}': {det}\n")
 
     return curr_vars
 
