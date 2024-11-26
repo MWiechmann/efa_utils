@@ -9,8 +9,9 @@ from factor_analyzer.rotator import Rotator
 # optional imports
 try:
     from reliabilipy import reliability_analysis
+    HAS_RELIABILIPY = True
 except ImportError:
-    pass
+    HAS_RELIABILIPY = False
 
 try:
     import matplotlib.pyplot as plt
@@ -643,6 +644,8 @@ def factor_int_reliability(df, items_per_factor, measures=["cronbach", "omega_to
     fac_reliab(pd.DataFrame): Dataframe with reliability estimates for each factor
     fac_reliab_excl(dict): Dictionary with reliability estimates for each factor when each item is excluded. Keys are factor numbers, values are dataframes with reliability estimates. Each row gives reliability estimates for excluding one item from that factor.
     """
+    if not HAS_RELIABILIPY:
+        raise ImportError("reliabilipy package is required for factor_int_reliability. Please install it with: pip install reliabilipy")
 
     # Create df to store measures for whole factors
     fac_reliab = pd.DataFrame(index=items_per_factor.keys(), columns=measures)

@@ -33,6 +33,11 @@ from .efa_utils_functions import (
     factor_int_reliability
 )
 
+try:
+    from reliabilipy import reliability_analysis
+except ImportError:
+    reliability_analysis = None
+
 __all__ = [
     "reduce_multicoll",
     "kmo_check",
@@ -40,7 +45,8 @@ __all__ = [
     "iterative_efa",
     "print_sorted_loadings",
     "rev_items_and_return",
-    "factor_int_reliability"
+    "factor_int_reliability",
+    "reliability_analysis"
 ]
 
-__version__ = "0.7.8"  # Update this with your current version number
+__version__ = "0.8.5"
